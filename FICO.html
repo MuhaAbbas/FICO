@@ -1,0 +1,2442 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FICO Sales Manager</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+  import { getAuth, signInWithEmailAndPassword, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+  import { getFirestore, collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyCK33PkzzxqsMuNM_AjxGm-IvJtcuptA8w",
+    authDomain: "fico-ae793.firebaseapp.com",
+    projectId: "fico-ae793",
+    storageBucket: "fico-ae793.firebasestorage.app",
+    messagingSenderId: "493373344770",
+    appId: "1:493373344770:web:b478080bca7f16bdb32b1b",
+    measurementId: "G-F3V17VQQWC"
+  };
+
+  const fbApp = initializeApp(firebaseConfig);
+  const auth = getAuth(fbApp);
+  const fdb = getFirestore(fbApp);
+
+  // Expose to global scope so the rest of our (non-module) script can use them
+  window.firebaseAuth = auth;
+  window.firebaseDB = fdb;
+  window.fb = { collection, doc, getDoc, getDocs, setDoc, deleteDoc, onSnapshot };
+
+  onAuthStateChanged(auth, (user) => {
+    window.dispatchEvent(new CustomEvent('authStateChanged', { detail: { user } }));
+  });
+
+  window.doLogin = async (email, password) => {
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+      return { success: true };
+    } catch (err) {
+      return { success: false, error: err.message };
+    }
+  };
+
+  window.doLogout = () => signOut(auth);
+</script>
+<style>
+  :root {
+    --navy: #0a0f1e;
+    --slate: #0f172a;
+    --card: #1e293b;
+    --border: #334155;
+    --accent: #f97316;
+    --accent2: #38bdf8;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --green: #22c55e;
+    --yellow: #eab308;
+    --red: #ef4444;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body { background: var(--navy); color: var(--text); font-family: 'Segoe UI', sans-serif; display: flex; }
+  ::-webkit-scrollbar { width: 6px; } ::-webkit-scrollbar-track { background: var(--slate); } ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+  
+  #sidebar { width: 240px; height: 100vh; background: var(--slate); border-right: 1px solid var(--border); display: flex; flex-direction: column; position: fixed; left: 0; top: 0; bottom: 0; z-index: 100; transition: transform 0.3s; overflow-y: auto; }
+  #sidebar.hidden { transform: translateX(-240px); }
+  #main { margin-left: 240px; flex: 1; min-width: 0; transition: margin 0.3s; }
+  #main.full { margin-left: 0; }
+  
+  .nav-item { display: flex; align-items: center; gap: 10px; padding: 12px 20px; cursor: pointer; color: var(--muted); transition: all 0.2s; border-left: 3px solid transparent; font-size: 14px; }
+  .nav-item:hover { background: rgba(249,115,22,0.1); color: var(--text); border-left-color: var(--accent); }
+  .nav-item.active { background: rgba(249,115,22,0.15); color: var(--accent); border-left-color: var(--accent); }
+  .nav-item svg { width: 18px; height: 18px; flex-shrink: 0; }
+  
+  .page { display: none; padding: 24px; }
+  .page.active { display: block; }
+  
+  .card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .btn { padding: 8px 16px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; font-weight: 500; transition: all 0.2s; }
+  .btn-primary { background: var(--accent); color: white; }
+  .btn-primary:hover { background: #ea6c0d; }
+  .btn-secondary { background: var(--border); color: var(--text); }
+  .btn-secondary:hover { background: #475569; }
+  .btn-danger { background: var(--red); color: white; }
+  .btn-danger:hover { background: #dc2626; }
+  .btn-blue { background: var(--accent2); color: var(--navy); }
+  .btn-blue:hover { background: #0ea5e9; }
+  .btn-green { background: var(--green); color: white; }
+  .btn-green:hover { background: #16a34a; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  
+  input, select, textarea { background: var(--navy); border: 1px solid var(--border); color: var(--text); border-radius: 8px; padding: 9px 12px; font-size: 14px; width: 100%; outline: none; transition: border 0.2s; }
+  input:focus, select:focus, textarea:focus { border-color: var(--accent); }
+  select option { background: var(--navy); }
+  label { font-size: 13px; color: var(--muted); margin-bottom: 4px; display: block; }
+  
+  .modal-overlay { display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.7); z-index: 1000; overflow-y: auto; padding: 20px; }
+  .modal-overlay.show { display: flex; align-items: flex-start; justify-content: center; }
+  .modal { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 28px; width: 100%; max-width: 640px; margin: auto; }
+  
+  .badge { padding: 3px 10px; border-radius: 20px; font-size: 12px; font-weight: 600; }
+  .badge-excellent { background: rgba(34,197,94,0.2); color: var(--green); }
+  .badge-good { background: rgba(56,189,248,0.2); color: var(--accent2); }
+  .badge-average { background: rgba(234,179,8,0.2); color: var(--yellow); }
+  .badge-poor { background: rgba(239,68,68,0.2); color: var(--red); }
+  
+  .status-green { color: var(--green); } .status-yellow { color: var(--yellow); } .status-red { color: var(--red); }
+  
+  .topbar { background: var(--slate); border-bottom: 1px solid var(--border); padding: 14px 24px; display: flex; align-items: center; gap: 16px; position: sticky; top: 0; z-index: 50; }
+  
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  th { background: var(--navy); padding: 10px 14px; text-align: left; color: var(--muted); font-weight: 500; font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; }
+  td { padding: 10px 14px; border-top: 1px solid var(--border); }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  
+  .stat-card { background: var(--card); border: 1px solid var(--border); border-radius: 12px; padding: 20px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; }
+  .stat-card .label { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  
+  .notification-banner { background: rgba(239,68,68,0.15); border: 1px solid rgba(239,68,68,0.4); border-radius: 12px; padding: 16px; margin-bottom: 20px; }
+  
+  .visit-card { background: var(--card); border: 1px solid var(--border); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+  .visit-card .stop-num { width: 32px; height: 32px; background: var(--accent); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; flex-shrink: 0; }
+  
+  .toggle-sidebar { background: none; border: none; color: var(--muted); cursor: pointer; padding: 4px; }
+  .toggle-sidebar:hover { color: var(--text); }
+  
+  @media (max-width: 768px) {
+    #sidebar { transform: translateX(-240px); }
+    #sidebar.mobile-show { transform: translateX(0); }
+    #main { margin-left: 0; }
+  }
+  
+  .whatsapp-msg { background: var(--navy); border-radius: 8px; padding: 12px; font-size: 13px; line-height: 1.6; color: var(--text); border-left: 3px solid var(--green); }
+  
+  .contact-row { background: var(--navy); border-radius: 8px; padding: 10px 14px; display: flex; gap: 10px; align-items: center; margin-bottom: 8px; }
+  
+  .progress-bar { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+  .progress-fill { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.5s; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border); margin-bottom: 20px; }
+  .tab { padding: 10px 16px; cursor: pointer; font-size: 14px; color: var(--muted); border-bottom: 2px solid transparent; transition: all 0.2s; }
+  .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  @media(max-width:900px) { .grid-4 { grid-template-columns: 1fr 1fr; } .grid-3 { grid-template-columns: 1fr 1fr; } }
+  @media(max-width:600px) { .grid-4,.grid-3,.grid-2 { grid-template-columns: 1fr; } }
+
+  /* LOGIN SCREEN */
+  #login-screen { position: fixed; inset: 0; background: var(--navy); display: flex; align-items: center; justify-content: center; z-index: 2000; padding: 20px; }
+  #login-screen.hide { display: none; }
+  .login-box { background: var(--card); border: 1px solid var(--border); border-radius: 16px; padding: 36px; width: 100%; max-width: 380px; }
+  .login-logo { width: 56px; height: 56px; background: var(--accent); border-radius: 14px; display: flex; align-items: center; justify-content: center; margin: 0 auto 16px; }
+  #app-shell { display: none; }
+  #app-shell.show { display: flex; }
+  #login-error { color: var(--red); font-size: 13px; margin-top: 8px; display: none; }
+  #login-loading { display: none; }
+  .spinner { width: 16px; height: 16px; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; display: inline-block; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  #sync-indicator { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .sync-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+  .sync-dot.syncing { background: var(--yellow); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.4;} }
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="login-screen">
+  <div class="login-box">
+    <div class="login-logo">
+      <svg viewBox="0 0 24 24" fill="white" width="28" height="28"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+    </div>
+    <div style="text-align:center;margin-bottom:24px;">
+      <div style="font-weight:700;font-size:18px;">FICO Sales Manager</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:4px;">Sign in to continue</div>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="you@example.com" autocomplete="username">
+      </div>
+      <div>
+        <label>Password</label>
+        <div style="position:relative;">
+          <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" style="padding-right:42px;">
+          <button type="button" onclick="toggleLoginPasswordVisibility()" style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--muted);cursor:pointer;padding:4px;display:flex;align-items:center;">
+            <svg id="login-eye-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <button class="btn btn-primary" id="login-btn" onclick="handleLogin()" style="width:100%;padding:11px;">
+        <span id="login-loading"><span class="spinner"></span>Signing in...</span>
+        <span id="login-btn-text">Sign In</span>
+      </button>
+      <div id="login-error"></div>
+    </div>
+  </div>
+</div>
+
+<!-- APP SHELL -->
+<div id="app-shell">
+
+<!-- SIDEBAR -->
+<div id="sidebar">
+  <div style="padding:20px; border-bottom:1px solid var(--border);">
+    <div style="display:flex;align-items:center;gap:10px;">
+      <div style="width:36px;height:36px;background:var(--accent);border-radius:8px;display:flex;align-items:center;justify-content:center;">
+        <svg viewBox="0 0 24 24" fill="white" width="20" height="20"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      </div>
+      <div>
+        <div style="font-weight:700;font-size:15px;color:var(--text);">FICO</div>
+        <div style="font-size:11px;color:var(--muted);">Sales Manager</div>
+      </div>
+    </div>
+  </div>
+  <nav style="flex:1;padding:12px 0;overflow-y:auto;">
+    <div class="nav-item active" onclick="showPage('dashboard')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>Dashboard
+    </div>
+    <div class="nav-item" onclick="showPage('clients')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>Clients
+    </div>
+    <div class="nav-item" onclick="showPage('vendors')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l1-6h16l1 6"/><path d="M3 9h18v11H3z"/><path d="M9 21V13h6v8"/></svg>Vendors
+    </div>
+    <div class="nav-item" onclick="showPage('vendor-ledger')" style="padding-left:46px;font-size:13px;">
+      ↳ Vendor Ledger
+    </div>
+    <div class="nav-item" onclick="showPage('ledger')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>Ledger
+    </div>
+    <div class="nav-item" onclick="showPage('planner')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>Visit Planner
+    </div>
+    <div class="nav-item" onclick="showPage('visits')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>Visit Tracking
+    </div>
+    <div class="nav-item" onclick="showPage('reports')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>Reports
+    </div>
+    <div class="nav-item" onclick="showPage('data')">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>Data Manager
+    </div>
+  </nav>
+  <div style="padding:16px;border-top:1px solid var(--border);font-size:12px;color:var(--muted);text-align:center;">
+    Lahore Traffic-Aware v1.0
+  </div>
+</div>
+
+<!-- MAIN CONTENT -->
+<div id="main">
+  <div class="topbar">
+    <button class="toggle-sidebar" onclick="toggleSidebar()">
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+    </button>
+    <span id="page-title" style="font-weight:600;font-size:16px;">Dashboard</span>
+    <div style="margin-left:auto;display:flex;gap:14px;align-items:center;">
+      <div id="sync-indicator"><span class="sync-dot" id="sync-dot"></span><span id="sync-text">Synced</span></div>
+      <span id="topbar-date" style="font-size:13px;color:var(--muted);"></span>
+      <button class="btn btn-secondary btn-sm" onclick="handleLogout()">Logout</button>
+    </div>
+  </div>
+
+  <!-- OVERDUE NOTIFICATION -->
+  <div id="overdue-banner" style="display:none;margin:20px 24px 0;">
+    <div class="notification-banner">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="var(--red)" stroke="none"><path d="M12 2L1 21h22L12 2zm0 3.5L20.5 19h-17L12 5.5zM11 10v4h2v-4h-2zm0 6v2h2v-2h-2z"/></svg>
+          <strong style="color:var(--red);">Overdue Accounts Alert</strong>
+        </div>
+        <button onclick="document.getElementById('overdue-banner').style.display='none'" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:18px;">×</button>
+      </div>
+      <div id="overdue-list"></div>
+    </div>
+  </div>
+
+  <!-- DASHBOARD -->
+  <div id="page-dashboard" class="page active">
+    <div class="grid-4" style="margin-bottom:20px;">
+      <div class="stat-card">
+        <div class="value" id="stat-total-clients" style="color:var(--accent2);">0</div>
+        <div class="label">Total Clients</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" id="stat-outstanding" style="color:var(--accent);">PKR 0</div>
+        <div class="label">Total Outstanding</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" id="stat-overdue" style="color:var(--red);">0</div>
+        <div class="label">Overdue 45+ Days</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" id="stat-visits-today" style="color:var(--green);">0/0</div>
+        <div class="label">Today's Visits Done/Planned</div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px;">
+      <div class="stat-card">
+        <div class="value" id="stat-total-vendors" style="color:var(--accent2);">0</div>
+        <div class="label">Total Vendors</div>
+      </div>
+      <div class="stat-card">
+        <div class="value" id="stat-payable" style="color:var(--accent);">PKR 0</div>
+        <div class="label">Total Payable to Vendors</div>
+      </div>
+    </div>
+
+    <div class="grid-2" style="margin-bottom:20px;">
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+          Clients by Category
+        </div>
+        <div id="category-breakdown"></div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:16px;display:flex;align-items:center;gap:8px;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+          Last 7 Days Visit Activity
+        </div>
+        <div style="position:relative;height:160px;">
+          <canvas id="visitChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <div class="card" style="margin-bottom:20px;">
+      <div style="font-weight:600;margin-bottom:16px;">Quick Actions</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;">
+        <button class="btn btn-primary" onclick="openAddClientModal()">+ Add Client</button>
+        <button class="btn btn-primary" onclick="openAddVendorModal()">+ Add Vendor</button>
+        <button class="btn btn-blue" onclick="showPage('planner')">📍 Plan Today's Visits</button>
+        <button class="btn btn-danger" onclick="showPage('ledger');filterOverdue()">⚠ View Overdue</button>
+        <button class="btn btn-secondary" onclick="showPage('reports')">📊 Daily Report</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:600;margin-bottom:16px;color:var(--red);">⚠ Overdue Clients (45+ Days)</div>
+      <div id="dashboard-overdue-list"><div style="color:var(--muted);font-size:14px;">No overdue clients.</div></div>
+    </div>
+  </div>
+
+  <!-- CLIENTS PAGE -->
+  <div id="page-clients" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;flex:1;">
+        <input type="text" id="client-search" placeholder="🔍 Search clients..." style="max-width:280px;" oninput="renderClients()">
+        <select id="client-filter-cat" onchange="renderClients()" style="max-width:160px;">
+          <option value="">All Categories</option>
+          <option>Excellent</option><option>Good</option><option>Average</option><option>Poor</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="openAddClientModal()">+ Add Client</button>
+    </div>
+    <div id="clients-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;"></div>
+  </div>
+
+  <!-- VENDORS PAGE -->
+  <div id="page-vendors" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+      <div style="display:flex;gap:10px;flex-wrap:wrap;flex:1;">
+        <input type="text" id="vendor-search" placeholder="🔍 Search vendors..." style="max-width:280px;" oninput="renderVendors()">
+        <select id="vendor-filter-cat" onchange="renderVendors()" style="max-width:160px;">
+          <option value="">All Categories</option>
+          <option>Excellent</option><option>Good</option><option>Average</option><option>Poor</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="openAddVendorModal()">+ Add Vendor</button>
+    </div>
+    <div id="vendors-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:16px;"></div>
+  </div>
+
+  <!-- VENDOR LEDGER PAGE -->
+  <div id="page-vendor-ledger" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+      <select id="vledger-vendor-select" onchange="renderVendorLedger()" style="max-width:300px;">
+        <option value="">— Select Vendor —</option>
+      </select>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="openAddVendorEntryModal()" id="add-vendor-entry-btn" disabled>+ Add Purchase Entry</button>
+        <button class="btn btn-secondary" onclick="exportVendorLedgerCSV()" id="export-vledger-btn" disabled>Export CSV</button>
+      </div>
+    </div>
+    <div id="vledger-summary" style="display:none;margin-bottom:16px;" class="grid-3">
+      <div class="stat-card"><div class="value" id="vls-total" style="color:var(--accent);">0</div><div class="label">Total Purchased</div></div>
+      <div class="stat-card"><div class="value" id="vls-paid" style="color:var(--green);">0</div><div class="label">Total Paid</div></div>
+      <div class="stat-card"><div class="value" id="vls-balance" style="color:var(--red);">0</div><div class="label">Balance Payable</div></div>
+    </div>
+    <div class="card" id="vledger-table-wrap">
+      <div style="color:var(--muted);font-size:14px;text-align:center;padding:40px;">Select a vendor to view their ledger.</div>
+    </div>
+  </div>
+
+  <!-- LEDGER PAGE -->
+  <div id="page-ledger" class="page">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
+      <select id="ledger-client-select" onchange="renderLedger()" style="max-width:300px;">
+        <option value="">— Select Client —</option>
+      </select>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-primary" onclick="openAddEntryModal()" id="add-entry-btn" disabled>+ Add Entry</button>
+        <button class="btn btn-secondary" onclick="exportLedgerCSV()" id="export-ledger-btn" disabled>Export CSV</button>
+      </div>
+    </div>
+    <div id="ledger-summary" style="display:none;margin-bottom:16px;" class="grid-3">
+      <div class="stat-card"><div class="value" id="ls-total" style="color:var(--accent);">0</div><div class="label">Total Invoiced</div></div>
+      <div class="stat-card"><div class="value" id="ls-paid" style="color:var(--green);">0</div><div class="label">Total Paid</div></div>
+      <div class="stat-card"><div class="value" id="ls-balance" style="color:var(--red);">0</div><div class="label">Balance Due</div></div>
+    </div>
+    <div class="card" id="ledger-table-wrap">
+      <div style="color:var(--muted);font-size:14px;text-align:center;padding:40px;">Select a client to view their ledger.</div>
+    </div>
+  </div>
+
+  <!-- VISIT PLANNER PAGE -->
+  <div id="page-planner" class="page">
+    <div class="card" style="margin-bottom:20px;">
+      <div style="font-weight:600;margin-bottom:16px;font-size:16px;">Smart Visit Planner — Lahore Traffic Aware</div>
+      <div class="grid-2" style="margin-bottom:16px;">
+        <div>
+          <label>Visit Start Time</label>
+          <input type="time" id="visit-start" value="09:00">
+        </div>
+        <div>
+          <label>Visit End Time</label>
+          <input type="time" id="visit-end" value="16:00">
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label>Starting Location (Area / Address)</label>
+        <div style="display:flex;gap:8px;">
+          <input type="text" id="start-location" placeholder="e.g. Gulberg, Lahore" style="flex:1;">
+          <button class="btn btn-secondary" onclick="detectLocation()">📍 Auto-Detect</button>
+        </div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label>Priority Focus</label>
+        <select id="priority-focus">
+          <option value="auto">Auto (Overdue + Long Gap + Poor/Average first)</option>
+          <option value="overdue">Overdue Payments Only</option>
+          <option value="area">Geographic Proximity</option>
+          <option value="category">Category (Poor → Average → Good → Excellent)</option>
+        </select>
+      </div>
+      <button class="btn btn-primary" onclick="generatePlan()" style="width:100%;">🗺 Generate Optimized Visit Plan</button>
+    </div>
+    <div id="planner-output"></div>
+  </div>
+
+  <!-- VISIT TRACKING PAGE -->
+  <div id="page-visits" class="page">
+    <div style="display:flex;gap:10px;margin-bottom:20px;flex-wrap:wrap;">
+      <select id="visit-client-select" style="flex:1;max-width:300px;" onchange="renderVisitHistory()">
+        <option value="">— Select Client —</option>
+      </select>
+      <input type="date" id="visit-date-filter" onchange="renderVisitHistory()" style="max-width:180px;">
+      <button class="btn btn-secondary" onclick="document.getElementById('visit-date-filter').value='';renderVisitHistory()">Clear Date</button>
+    </div>
+    <div id="visit-history-list"><div style="color:var(--muted);text-align:center;padding:40px;font-size:14px;">Select a client to view visit history.</div></div>
+  </div>
+
+  <!-- REPORTS PAGE -->
+  <div id="page-reports" class="page">
+    <div class="card" style="margin-bottom:20px;">
+      <div style="font-weight:600;margin-bottom:16px;">Daily Visit Report</div>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+        <div style="flex:1;">
+          <label>Report Date</label>
+          <input type="date" id="report-date">
+        </div>
+        <button class="btn btn-primary" onclick="generateReport()">Generate Report</button>
+        <button class="btn btn-blue" onclick="downloadReportPDF()">⬇ Download PDF</button>
+        <button class="btn btn-secondary" onclick="printReport()">🖨 Print</button>
+      </div>
+    </div>
+    <div id="report-output"></div>
+  </div>
+
+  <!-- DATA MANAGER PAGE -->
+  <div id="page-data" class="page">
+    <div class="grid-2">
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:12px;">💾 Backup & Restore</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Export all data as JSON for backup, or import to restore.</p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button class="btn btn-primary" onclick="exportAllData()">⬇ Export Full Backup (JSON)</button>
+          <label class="btn btn-secondary" style="text-align:center;cursor:pointer;">
+            ⬆ Import Backup (JSON)
+            <input type="file" accept=".json" onchange="importAllData(event)" style="display:none;">
+          </label>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:12px;">📤 Export Options</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Export specific data in CSV format.</p>
+        <div style="display:flex;flex-direction:column;gap:10px;">
+          <button class="btn btn-secondary" onclick="exportClientsCSV()">Export Client List (CSV)</button>
+          <button class="btn btn-secondary" onclick="exportAllLedgersCSV()">Export All Client Ledgers (CSV)</button>
+          <button class="btn btn-secondary" onclick="exportVendorsCSV()">Export Vendor List (CSV)</button>
+          <button class="btn btn-secondary" onclick="exportAllVendorLedgersCSV()">Export All Vendor Ledgers (CSV)</button>
+        </div>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:12px;">🗑 Clear Data</div>
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px;">Permanently delete all stored data. Cannot be undone.</p>
+        <button class="btn btn-danger" onclick="clearAllData()">Clear All Data</button>
+      </div>
+      <div class="card">
+        <div style="font-weight:600;margin-bottom:12px;">ℹ Storage Info</div>
+        <div id="storage-info" style="font-size:13px;color:var(--muted);line-height:1.8;"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ====== MODALS ====== -->
+
+<!-- ADD/EDIT CLIENT MODAL -->
+<div id="modal-client" class="modal-overlay">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 style="font-size:18px;font-weight:700;" id="client-modal-title">Add New Client</h2>
+      <button onclick="closeModal('modal-client')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label>Company Name *</label>
+        <input type="text" id="c-name" placeholder="e.g. Al-Noor Electricals">
+      </div>
+      <div>
+        <label>Full Address (with City/Area) *</label>
+        <input type="text" id="c-address" placeholder="e.g. Shop 12, Hall Road, Lahore">
+      </div>
+      <div class="grid-2">
+        <div>
+          <label>GPS Latitude</label>
+          <input type="text" id="c-lat" placeholder="e.g. 31.5204">
+        </div>
+        <div>
+          <label>GPS Longitude</label>
+          <input type="text" id="c-lng" placeholder="e.g. 74.3587">
+        </div>
+      </div>
+      <div>
+        <label>OR Google Maps Link</label>
+        <input type="text" id="c-maps-link" placeholder="Paste Google Maps URL here">
+      </div>
+      <div>
+        <label>Client Category</label>
+        <select id="c-category">
+          <option>Excellent</option><option>Good</option><option selected>Average</option><option>Poor</option>
+        </select>
+      </div>
+      <div>
+        <label>Notes / Description</label>
+        <textarea id="c-notes" rows="3" placeholder="Business type, products interest, special notes..."></textarea>
+      </div>
+
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <label style="margin:0;">Contact Persons</label>
+          <button class="btn btn-secondary btn-sm" onclick="addContactRow()">+ Add Contact</button>
+        </div>
+        <div id="contacts-container"></div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+        <button class="btn btn-secondary" onclick="closeModal('modal-client')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveClient()">Save Client</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD/EDIT VENDOR MODAL -->
+<div id="modal-vendor" class="modal-overlay">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 style="font-size:18px;font-weight:700;" id="vendor-modal-title">Add New Vendor</h2>
+      <button onclick="closeModal('modal-vendor')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div>
+        <label>Vendor / Company Name *</label>
+        <input type="text" id="vd-name" placeholder="e.g. Siemens Distributor Lahore">
+      </div>
+      <div>
+        <label>Full Address (with City/Area) *</label>
+        <input type="text" id="vd-address" placeholder="e.g. Shop 5, Hall Road, Lahore">
+      </div>
+      <div class="grid-2">
+        <div>
+          <label>GPS Latitude</label>
+          <input type="text" id="vd-lat" placeholder="e.g. 31.5204">
+        </div>
+        <div>
+          <label>GPS Longitude</label>
+          <input type="text" id="vd-lng" placeholder="e.g. 74.3587">
+        </div>
+      </div>
+      <div>
+        <label>OR Google Maps Link</label>
+        <input type="text" id="vd-maps-link" placeholder="Paste Google Maps URL here">
+      </div>
+      <div>
+        <label>Products Supplied</label>
+        <input type="text" id="vd-products" placeholder="e.g. Breakers, SPDs, Cables">
+      </div>
+      <div class="grid-2">
+        <div>
+          <label>Vendor Rating</label>
+          <select id="vd-category">
+            <option>Excellent</option><option>Good</option><option selected>Average</option><option>Poor</option>
+          </select>
+        </div>
+        <div>
+          <label>Payment Terms</label>
+          <input type="text" id="vd-terms" placeholder="e.g. 30 days credit / Cash on delivery">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div>
+          <label>GST Number</label>
+          <input type="text" id="vd-gst" placeholder="e.g. 03-XX-XXXXXXX-XXX">
+        </div>
+        <div>
+          <label>NTN Number</label>
+          <input type="text" id="vd-ntn" placeholder="e.g. XXXXXXX-X">
+        </div>
+      </div>
+      <div>
+        <label>Bank Account Details</label>
+        <input type="text" id="vd-bank" placeholder="e.g. Bank Name, Account Title, IBAN">
+      </div>
+      <div>
+        <label>Notes / Description</label>
+        <textarea id="vd-notes" rows="3" placeholder="Reliability, delivery time, special notes..."></textarea>
+      </div>
+
+      <div>
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+          <label style="margin:0;">Contact Persons</label>
+          <button class="btn btn-secondary btn-sm" onclick="addVendorContactRow()">+ Add Contact</button>
+        </div>
+        <div id="vendor-contacts-container"></div>
+      </div>
+
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:6px;">
+        <button class="btn btn-secondary" onclick="closeModal('modal-vendor')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveVendor()">Save Vendor</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ADD VENDOR LEDGER ENTRY MODAL -->
+<div id="modal-vendor-entry" class="modal-overlay">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 style="font-size:18px;font-weight:700;">Add Purchase Entry</h2>
+      <button onclick="closeModal('modal-vendor-entry')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="grid-2">
+        <div>
+          <label>Date *</label>
+          <input type="date" id="ve-date">
+        </div>
+        <div>
+          <label>Bill / Invoice Number</label>
+          <input type="text" id="ve-invoice" placeholder="BILL-001">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div>
+          <label>Bill Amount (PKR) *</label>
+          <input type="number" id="ve-amount" placeholder="0">
+        </div>
+        <div>
+          <label>Amount Paid (PKR)</label>
+          <input type="number" id="ve-paid" placeholder="0">
+        </div>
+      </div>
+      <div>
+        <label>Due Date</label>
+        <input type="date" id="ve-due-date">
+      </div>
+      <div>
+        <label>Notes</label>
+        <input type="text" id="ve-notes" placeholder="Optional notes — items purchased, etc.">
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="closeModal('modal-vendor-entry')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveVendorLedgerEntry()">Save Entry</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- VENDOR DETAIL MODAL -->
+<div id="modal-vendor-detail" class="modal-overlay">
+  <div class="modal" style="max-width:720px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <h2 style="font-size:18px;font-weight:700;" id="vdetail-name"></h2>
+        <div id="vdetail-address" style="font-size:13px;color:var(--muted);margin-top:4px;"></div>
+      </div>
+      <button onclick="closeModal('modal-vendor-detail')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div class="tabs">
+      <div class="tab active" onclick="switchVendorDetailTab('info')">Info</div>
+      <div class="tab" onclick="switchVendorDetailTab('ledger')">Ledger</div>
+    </div>
+    <div id="vdetail-info"></div>
+    <div id="vdetail-ledger" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- ADD LEDGER ENTRY MODAL -->
+<div id="modal-entry" class="modal-overlay">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 style="font-size:18px;font-weight:700;">Add Ledger Entry</h2>
+      <button onclick="closeModal('modal-entry')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="grid-2">
+        <div>
+          <label>Date *</label>
+          <input type="date" id="e-date">
+        </div>
+        <div>
+          <label>Invoice Number</label>
+          <input type="text" id="e-invoice" placeholder="INV-001">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div>
+          <label>Invoice Amount (PKR) *</label>
+          <input type="number" id="e-amount" placeholder="0">
+        </div>
+        <div>
+          <label>Amount Paid (PKR)</label>
+          <input type="number" id="e-paid" placeholder="0">
+        </div>
+      </div>
+      <div>
+        <label>Due Date</label>
+        <input type="date" id="e-due-date">
+      </div>
+      <div>
+        <label>Notes</label>
+        <input type="text" id="e-notes" placeholder="Optional notes">
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="closeModal('modal-entry')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveLedgerEntry()">Save Entry</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- VISIT LOG MODAL -->
+<div id="modal-visit" class="modal-overlay">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;">
+      <h2 style="font-size:18px;font-weight:700;">Post-Visit Report</h2>
+      <button onclick="closeModal('modal-visit')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div style="font-size:14px;color:var(--muted);margin-bottom:16px;" id="visit-client-name"></div>
+    <div style="display:flex;flex-direction:column;gap:14px;">
+      <div class="grid-2">
+        <div>
+          <label>Date & Time</label>
+          <input type="datetime-local" id="v-datetime">
+        </div>
+        <div>
+          <label>Meeting Outcome</label>
+          <select id="v-outcome">
+            <option>Positive</option><option>Neutral</option><option>Negative</option><option>Follow-up Required</option>
+          </select>
+        </div>
+      </div>
+      <div>
+        <label>Requirements Discussed (products, quantities, specs)</label>
+        <textarea id="v-requirements" rows="3" placeholder="e.g. Needs 50x MCB 32A, 2x ATS 100A, cables..."></textarea>
+      </div>
+      <div>
+        <label>Future Plans / Next Steps</label>
+        <textarea id="v-future" rows="2" placeholder="e.g. New project in Q2, tender expected next month..."></textarea>
+      </div>
+      <div>
+        <label>Next Visit Date</label>
+        <input type="date" id="v-next-date">
+      </div>
+      <div>
+        <label>General Remarks</label>
+        <textarea id="v-remarks" rows="2" placeholder="Any other observations..."></textarea>
+      </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;">
+        <button class="btn btn-secondary" onclick="closeModal('modal-visit')">Cancel</button>
+        <button class="btn btn-primary" onclick="saveVisit()">Save Visit Log</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- CLIENT DETAIL MODAL -->
+<div id="modal-client-detail" class="modal-overlay">
+  <div class="modal" style="max-width:720px;">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px;">
+      <div>
+        <h2 style="font-size:18px;font-weight:700;" id="detail-name"></h2>
+        <div id="detail-address" style="font-size:13px;color:var(--muted);margin-top:4px;"></div>
+      </div>
+      <button onclick="closeModal('modal-client-detail')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div class="tabs">
+      <div class="tab active" onclick="switchDetailTab('info')">Info</div>
+      <div class="tab" onclick="switchDetailTab('ledger')">Ledger</div>
+      <div class="tab" onclick="switchDetailTab('visits')">Visit History</div>
+    </div>
+    <div id="detail-info"></div>
+    <div id="detail-ledger" style="display:none;"></div>
+    <div id="detail-visits" style="display:none;"></div>
+  </div>
+</div>
+
+<!-- WHATSAPP MESSAGE MODAL -->
+<div id="modal-whatsapp" class="modal-overlay">
+  <div class="modal">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+      <h2 style="font-size:16px;font-weight:700;">📱 WhatsApp Collection Message</h2>
+      <button onclick="closeModal('modal-whatsapp')" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:22px;">×</button>
+    </div>
+    <div id="whatsapp-content"></div>
+    <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+      <button class="btn btn-green" onclick="copyWhatsApp()">📋 Copy Message</button>
+      <button class="btn btn-secondary" onclick="closeModal('modal-whatsapp')">Close</button>
+    </div>
+  </div>
+</div>
+
+</div> <!-- /app-shell -->
+
+<script>
+// ============================================================
+// DATA STORAGE — Firestore-backed with local cache for sync reads
+// ============================================================
+// We keep a synchronous in-memory cache (mirrors old localStorage behavior)
+// so all existing DB.get()/DB.set() call sites keep working unchanged.
+// Firestore writes happen in the background; real-time listeners keep
+// the cache (and UI) updated across devices.
+
+const _cache = {};       // key -> array or object
+const _unsubscribers = {}; // key -> firestore unsubscribe fn
+let currentUserId = null;
+let isOnline = true;
+
+function _cacheKeyToPath(key) {
+  // Each "key" (e.g. 'clients', 'ledger_abc123') becomes its own top-level collection
+  return key;
+}
+
+function setSyncStatus(status) {
+  const dot = document.getElementById('sync-dot');
+  const text = document.getElementById('sync-text');
+  if(!dot || !text) return;
+  if(status === 'syncing') { dot.classList.add('syncing'); text.textContent = 'Syncing...'; }
+  else if(status === 'offline') { dot.classList.remove('syncing'); dot.style.background = 'var(--red)'; text.textContent = 'Offline'; }
+  else { dot.classList.remove('syncing'); dot.style.background = 'var(--green)'; text.textContent = 'Synced'; }
+}
+
+const DB = {
+  // Synchronous read from local cache (always returns an array, like before)
+  get: (key) => {
+    if(_cache[key]) return _cache[key];
+    try { const raw = localStorage.getItem('elecpro_' + key); return raw ? JSON.parse(raw) : []; }
+    catch(e) { return []; }
+  },
+  // Write: update cache immediately (instant UI), persist to localStorage as offline fallback,
+  // and push every doc to Firestore in the background.
+  set: (key, val) => {
+    _cache[key] = val;
+    try { localStorage.setItem('elecpro_' + key, JSON.stringify(val)); } catch(e) {}
+    _pushCollectionToFirestore(key, val);
+  },
+  getObj: (key, def={}) => {
+    if(_cache['obj_'+key]) return _cache['obj_'+key];
+    try { const raw = localStorage.getItem('elecpro_' + key); return raw ? JSON.parse(raw) : def; }
+    catch(e) { return def; }
+  },
+  setObj: (key, val) => {
+    _cache['obj_'+key] = val;
+    try { localStorage.setItem('elecpro_' + key, JSON.stringify(val)); } catch(e) {}
+    _pushSingletonToFirestore(key, val);
+  }
+};
+
+// Push an array-type collection (clients, vendors, ledger_X, visits_X, vendor_ledger_X)
+// to Firestore. Each array item must have an `id`; we write/merge each as its own document,
+// and remove documents that are no longer present in val.
+async function _pushCollectionToFirestore(key, val) {
+  if(!window.firebaseDB || !currentUserId) return;
+  setSyncStatus('syncing');
+  try {
+    const { collection, doc, getDocs, setDoc, deleteDoc } = window.fb;
+    const colRef = collection(window.firebaseDB, 'users', currentUserId, key);
+    const existingSnap = await getDocs(colRef);
+    const existingIds = new Set(existingSnap.docs.map(d => d.id));
+    const newIds = new Set((val||[]).map(item => item.id));
+    // Upsert all current items
+    const writes = (val||[]).map(item => setDoc(doc(colRef, item.id), item));
+    // Delete removed items
+    existingIds.forEach(id => { if(!newIds.has(id)) writes.push(deleteDoc(doc(colRef, id))); });
+    await Promise.all(writes);
+    setSyncStatus('synced');
+  } catch(err) {
+    console.error('Firestore sync error (' + key + '):', err);
+    setSyncStatus('offline');
+  }
+}
+
+// Push a singleton object (e.g. today_plan) as one document
+async function _pushSingletonToFirestore(key, val) {
+  if(!window.firebaseDB || !currentUserId) return;
+  setSyncStatus('syncing');
+  try {
+    const { doc, setDoc } = window.fb;
+    const ref = doc(window.firebaseDB, 'users', currentUserId, 'meta', key);
+    await setDoc(ref, val || {});
+    setSyncStatus('synced');
+  } catch(err) {
+    console.error('Firestore sync error (meta/' + key + '):', err);
+    setSyncStatus('offline');
+  }
+}
+
+// Subscribe to a collection in real time; keeps _cache[key] updated and re-renders UI.
+function subscribeCollection(key) {
+  if(_unsubscribers[key] || !window.firebaseDB || !currentUserId) return;
+  const { collection, onSnapshot } = window.fb;
+  const colRef = collection(window.firebaseDB, 'users', currentUserId, key);
+  _unsubscribers[key] = onSnapshot(colRef, (snap) => {
+    const items = snap.docs.map(d => d.data());
+    _cache[key] = items;
+    try { localStorage.setItem('elecpro_' + key, JSON.stringify(items)); } catch(e) {}
+    _onRemoteUpdate(key);
+  }, (err) => { console.error('Snapshot error (' + key + '):', err); setSyncStatus('offline'); });
+}
+
+// Re-render whichever part of the UI depends on this key, so changes from
+// other devices show up live without a manual refresh.
+function _onRemoteUpdate(key) {
+  if(key === 'clients') { renderClients(); refreshDashboard(); populateLedgerSelect(); populateVisitClientSelect(); }
+  else if(key === 'vendors') { renderVendors(); refreshDashboard(); populateVendorLedgerSelect(); }
+  else if(key.startsWith('ledger_')) { renderLedger(); refreshDashboard(); renderClients(); }
+  else if(key.startsWith('visits_')) { renderVisitHistory(); refreshDashboard(); renderClients(); }
+  else if(key.startsWith('vendor_ledger_')) { renderVendorLedger(); refreshDashboard(); renderVendors(); }
+}
+
+// Load all top-level collections we know about, plus per-client/vendor sub-collections
+// once we know which clients/vendors exist.
+async function initFirestoreSync(userId) {
+  currentUserId = userId;
+  subscribeCollection('clients');
+  subscribeCollection('vendors');
+  // Wait briefly for clients/vendors to load, then subscribe to their sub-collections.
+  // We also re-check whenever clients/vendors change (new client = new ledger to watch).
+  const watchSubcollections = () => {
+    DB.get('clients').forEach(c => { subscribeCollection('ledger_' + c.id); subscribeCollection('visits_' + c.id); });
+    DB.get('vendors').forEach(v => { subscribeCollection('vendor_ledger_' + v.id); });
+  };
+  const { collection, onSnapshot } = window.fb;
+  onSnapshot(collection(window.firebaseDB, 'users', userId, 'clients'), () => watchSubcollections());
+  onSnapshot(collection(window.firebaseDB, 'users', userId, 'vendors'), () => watchSubcollections());
+}
+
+function teardownFirestoreSync() {
+  Object.values(_unsubscribers).forEach(unsub => { try { unsub(); } catch(e) {} });
+  Object.keys(_unsubscribers).forEach(k => delete _unsubscribers[k]);
+  Object.keys(_cache).forEach(k => delete _cache[k]);
+  currentUserId = null;
+}
+
+let editingClientId = null;
+let currentDetailClientId = null;
+let currentVisitClientId = null;
+let visitChart = null;
+let currentLat = null;
+let currentLng = null;
+let todayPlan = [];
+
+// ============================================================
+// UTILITIES
+// ============================================================
+function uid() { return Date.now().toString(36) + Math.random().toString(36).substr(2); }
+function fmt(n) { return 'PKR ' + Number(n||0).toLocaleString(); }
+function fmtNum(n) { return Number(n||0).toLocaleString(); }
+function today() { return new Date().toISOString().split('T')[0]; }
+function daysBetween(d1, d2) { return Math.floor((new Date(d2) - new Date(d1)) / 86400000); }
+
+function showToast(msg, type='success') {
+  const t = document.createElement('div');
+  t.style.cssText = `position:fixed;bottom:24px;right:24px;padding:12px 20px;border-radius:10px;font-size:14px;font-weight:500;z-index:9999;transition:all 0.3s;background:${type==='success'?'#22c55e':type==='error'?'#ef4444':'#f97316'};color:white;box-shadow:0 4px 20px rgba(0,0,0,0.4)`;
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), 3000);
+}
+
+function showPage(name) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+  document.getElementById('page-' + name).classList.add('active');
+  document.querySelectorAll('.nav-item').forEach(n => { if(n.getAttribute('onclick')?.includes(name)) n.classList.add('active'); });
+  const titles = { dashboard:'Dashboard', clients:'Client Management', vendors:'Vendor Management', 'vendor-ledger':'Vendor Ledger', ledger:'Ledger', planner:'Smart Visit Planner', visits:'Visit Tracking', reports:'Reports', data:'Data Manager' };
+  document.getElementById('page-title').textContent = titles[name] || name;
+  if(name === 'dashboard') refreshDashboard();
+  if(name === 'clients') renderClients();
+  if(name === 'vendors') renderVendors();
+  if(name === 'vendor-ledger') populateVendorLedgerSelect();
+  if(name === 'ledger') populateLedgerSelect();
+  if(name === 'visits') populateVisitClientSelect();
+  if(name === 'data') updateStorageInfo();
+  if(name === 'reports') document.getElementById('report-date').value = today();
+}
+
+function toggleSidebar() {
+  const s = document.getElementById('sidebar');
+  const m = document.getElementById('main');
+  if(window.innerWidth <= 768) { s.classList.toggle('mobile-show'); }
+  else { s.classList.toggle('hidden'); m.classList.toggle('full'); }
+}
+
+function openModal(id) { document.getElementById(id).classList.add('show'); }
+function closeModal(id) { document.getElementById(id).classList.remove('show'); }
+
+// ============================================================
+// CLIENT MANAGEMENT
+// ============================================================
+function openAddClientModal(clientId=null) {
+  editingClientId = clientId;
+  document.getElementById('client-modal-title').textContent = clientId ? 'Edit Client' : 'Add New Client';
+  const clients = DB.get('clients');
+  const c = clientId ? clients.find(x => x.id === clientId) : null;
+  document.getElementById('c-name').value = c?.name || '';
+  document.getElementById('c-address').value = c?.address || '';
+  document.getElementById('c-lat').value = c?.lat || '';
+  document.getElementById('c-lng').value = c?.lng || '';
+  document.getElementById('c-maps-link').value = c?.mapsLink || '';
+  document.getElementById('c-category').value = c?.category || 'Average';
+  document.getElementById('c-notes').value = c?.notes || '';
+  const container = document.getElementById('contacts-container');
+  container.innerHTML = '';
+  const contacts = c?.contacts || [{ name:'', designation:'', phone:'' }];
+  contacts.forEach((ct, i) => addContactRow(ct));
+  openModal('modal-client');
+}
+
+function addContactRow(data={}) {
+  const container = document.getElementById('contacts-container');
+  const row = document.createElement('div');
+  row.className = 'contact-row';
+  row.innerHTML = `
+    <input type="text" placeholder="Name" value="${data.name||''}" style="flex:2;">
+    <input type="text" placeholder="Designation" value="${data.designation||''}" style="flex:2;">
+    <input type="tel" placeholder="Phone" value="${data.phone||''}" style="flex:2;">
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:18px;flex-shrink:0;">×</button>
+  `;
+  container.appendChild(row);
+}
+
+function saveClient() {
+  const name = document.getElementById('c-name').value.trim();
+  const address = document.getElementById('c-address').value.trim();
+  if(!name || !address) return showToast('Company name and address are required.', 'error');
+  const rows = document.getElementById('contacts-container').querySelectorAll('.contact-row');
+  const contacts = Array.from(rows).map(r => {
+    const ins = r.querySelectorAll('input');
+    return { name: ins[0].value.trim(), designation: ins[1].value.trim(), phone: ins[2].value.trim() };
+  }).filter(c => c.name || c.phone);
+  const client = {
+    id: editingClientId || uid(), name, address,
+    lat: document.getElementById('c-lat').value.trim(),
+    lng: document.getElementById('c-lng').value.trim(),
+    mapsLink: document.getElementById('c-maps-link').value.trim(),
+    category: document.getElementById('c-category').value,
+    notes: document.getElementById('c-notes').value.trim(),
+    contacts, createdAt: editingClientId ? undefined : new Date().toISOString()
+  };
+  const clients = DB.get('clients');
+  if(editingClientId) {
+    const idx = clients.findIndex(c => c.id === editingClientId);
+    client.createdAt = clients[idx].createdAt;
+    clients[idx] = client;
+  } else {
+    clients.push(client);
+  }
+  DB.set('clients', clients);
+  closeModal('modal-client');
+  renderClients();
+  refreshDashboard();
+  showToast(editingClientId ? 'Client updated!' : 'Client added!');
+  editingClientId = null;
+}
+
+function deleteClient(id) {
+  if(!confirm('Delete this client and all their data?')) return;
+  let clients = DB.get('clients');
+  clients = clients.filter(c => c.id !== id);
+  DB.set('clients', clients);
+  // Also delete ledger and visits
+  DB.set('ledger_' + id, []);
+  DB.set('visits_' + id, []);
+  renderClients();
+  refreshDashboard();
+  showToast('Client deleted.', 'error');
+}
+
+function renderClients() {
+  const clients = DB.get('clients');
+  const search = document.getElementById('client-search').value.toLowerCase();
+  const cat = document.getElementById('client-filter-cat').value;
+  const filtered = clients.filter(c =>
+    (!search || c.name.toLowerCase().includes(search) || c.address.toLowerCase().includes(search)) &&
+    (!cat || c.category === cat)
+  );
+  const grid = document.getElementById('clients-grid');
+  if(!filtered.length) { grid.innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center;">No clients found. Add your first client!</div>'; return; }
+  grid.innerHTML = filtered.map(c => {
+    const ledger = DB.get('ledger_' + c.id);
+    const balance = ledger.reduce((s, e) => s + (e.amount - e.paid), 0);
+    const visits = DB.get('visits_' + c.id);
+    const lastVisit = visits.length ? visits[visits.length-1].datetime?.split('T')[0] : null;
+    const overdue = getClientOverdueDays(c.id);
+    return `
+      <div class="card" style="cursor:pointer;" onclick="openClientDetail('${c.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+          <div style="font-weight:600;font-size:15px;">${c.name}</div>
+          <span class="badge badge-${c.category.toLowerCase()}">${c.category}</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">📍 ${c.address}</div>
+        ${c.contacts?.length ? `<div style="font-size:13px;color:var(--muted);margin-bottom:10px;">👤 ${c.contacts[0].name}${c.contacts[0].phone?' · '+c.contacts[0].phone:''}</div>` : ''}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;">
+          <span style="color:${balance>0?'#ef4444':'#22c55e'};font-weight:600;">${fmt(balance)}</span>
+          <span style="color:var(--muted);">Last visit: ${lastVisit||'Never'}</span>
+        </div>
+        ${overdue > 0 ? `<div style="background:rgba(239,68,68,0.1);border-radius:6px;padding:6px 10px;font-size:12px;color:#ef4444;margin-bottom:10px;">⚠ Overdue ${overdue} days</div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" onclick="event.stopPropagation()">
+          <button class="btn btn-sm btn-primary" onclick="openAddClientModal('${c.id}')">Edit</button>
+          <button class="btn btn-sm btn-blue" onclick="openMaps('${c.id}')">📍 Maps</button>
+          <button class="btn btn-sm btn-green" onclick="openVisitModal('${c.id}')">✓ Visit</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteClient('${c.id}')">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+// ============================================================
+// CLIENT DETAIL
+// ============================================================
+function openClientDetail(id) {
+  currentDetailClientId = id;
+  const clients = DB.get('clients');
+  const c = clients.find(x => x.id === id);
+  document.getElementById('detail-name').textContent = c.name;
+  document.getElementById('detail-address').textContent = c.address;
+  switchDetailTab('info');
+  openModal('modal-client-detail');
+}
+
+function switchDetailTab(tab) {
+  ['info','ledger','visits'].forEach(t => {
+    document.getElementById('detail-'+t).style.display = t===tab ? 'block' : 'none';
+  });
+  document.querySelectorAll('#modal-client-detail .tab').forEach((el,i) => {
+    el.classList.toggle('active', ['info','ledger','visits'][i] === tab);
+  });
+  const id = currentDetailClientId;
+  const clients = DB.get('clients');
+  const c = clients.find(x => x.id === id);
+  if(tab === 'info') {
+    const visits = DB.get('visits_' + id);
+    const lastVisit = visits.length ? visits[visits.length-1].datetime?.split('T')[0] : 'Never';
+    document.getElementById('detail-info').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div class="grid-2">
+          <div><label>Category</label><div><span class="badge badge-${c.category.toLowerCase()}">${c.category}</span></div></div>
+          <div><label>Last Visited</label><div style="font-size:14px;">${lastVisit}</div></div>
+        </div>
+        ${c.lat && c.lng ? `<div class="grid-2"><div><label>Latitude</label><div style="font-size:14px;">${c.lat}</div></div><div><label>Longitude</label><div style="font-size:14px;">${c.lng}</div></div></div>` : ''}
+        ${c.mapsLink ? `<div><label>Maps Link</label><a href="${c.mapsLink}" target="_blank" style="color:var(--accent2);font-size:13px;">${c.mapsLink.substring(0,60)}...</a></div>` : ''}
+        <div>
+          <label>Contact Persons</label>
+          ${c.contacts?.map(ct => `<div class="contact-row" style="margin-bottom:8px;"><div style="flex:1;"><div style="font-weight:500;">${ct.name}</div><div style="font-size:12px;color:var(--muted);">${ct.designation||''}</div></div><div style="color:var(--accent2);font-size:14px;">${ct.phone||''}</div></div>`).join('')||'<div style="color:var(--muted);font-size:14px;">No contacts added.</div>'}
+        </div>
+        ${c.notes ? `<div><label>Notes</label><div style="font-size:14px;color:var(--text);">${c.notes}</div></div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="closeModal('modal-client-detail');openAddClientModal('${id}')">Edit Client</button>
+          <button class="btn btn-blue" onclick="openMaps('${id}')">📍 Open in Maps</button>
+          <button class="btn btn-green" onclick="closeModal('modal-client-detail');openVisitModal('${id}')">✓ Mark as Visited</button>
+          ${c.contacts?.length ? `<button class="btn btn-secondary" onclick="openWhatsApp('${id}')">📱 WhatsApp Message</button>` : ''}
+        </div>
+      </div>`;
+  } else if(tab === 'ledger') {
+    const entries = DB.get('ledger_' + id);
+    const total = entries.reduce((s,e) => s+e.amount, 0);
+    const paid = entries.reduce((s,e) => s+e.paid, 0);
+    document.getElementById('detail-ledger').innerHTML = `
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;">Total: <b style="color:var(--accent)">${fmt(total)}</b> | Paid: <b style="color:var(--green)">${fmt(paid)}</b> | Balance: <b style="color:var(--red)">${fmt(total-paid)}</b></div>
+        <div style="display:flex;gap:8px;"><button class="btn btn-sm btn-primary" onclick="closeModal('modal-client-detail');showPage('ledger');document.getElementById('ledger-client-select').value='${id}';renderLedger()">Manage Ledger</button></div>
+      </div>
+      ${entries.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Invoice</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Status</th></tr></thead><tbody>${entries.map(e => {
+        const bal = e.amount - e.paid;
+        const days = e.dueDate ? daysBetween(e.dueDate, today()) : -1;
+        const status = bal<=0 ? 'Cleared' : days > 45 ? 'Overdue 45+' : days > 0 ? 'Overdue' : days > -7 ? 'Due Soon' : 'Pending';
+        const color = bal<=0 ? 'var(--green)' : days > 45 ? 'var(--red)' : days > 0 ? 'var(--red)' : days > -7 ? 'var(--yellow)' : 'var(--muted)';
+        return `<tr><td>${e.date}</td><td>${e.invoice||'-'}</td><td>${fmt(e.amount)}</td><td>${fmt(e.paid)}</td><td style="color:${color}">${fmt(bal)}</td><td style="color:${color}">${status}</td></tr>`;
+      }).join('')}</tbody></table></div>` : '<div style="color:var(--muted);text-align:center;padding:20px;">No ledger entries yet.</div>'}`;
+  } else if(tab === 'visits') {
+    const visits = DB.get('visits_' + id);
+    const colors = { Positive:'var(--green)', Neutral:'var(--accent2)', Negative:'var(--red)', 'Follow-up Required':'var(--yellow)' };
+    document.getElementById('detail-visits').innerHTML = visits.length ?
+      visits.slice().reverse().map(v => `
+        <div class="card" style="margin-bottom:10px;">
+          <div style="display:flex;justify-content:space-between;margin-bottom:8px;">
+            <span style="font-size:13px;color:var(--muted);">${v.datetime?.replace('T',' ')||'N/A'}</span>
+            <span style="color:${colors[v.outcome]||'var(--text)'};font-weight:600;font-size:13px;">${v.outcome}</span>
+          </div>
+          ${v.requirements ? `<div style="margin-bottom:6px;font-size:13px;"><b>Requirements:</b> ${v.requirements}</div>` : ''}
+          ${v.future ? `<div style="margin-bottom:6px;font-size:13px;"><b>Future Plans:</b> ${v.future}</div>` : ''}
+          ${v.nextDate ? `<div style="margin-bottom:6px;font-size:13px;color:var(--accent2);">📅 Next Visit: ${v.nextDate}</div>` : ''}
+          ${v.remarks ? `<div style="font-size:13px;color:var(--muted);">${v.remarks}</div>` : ''}
+        </div>`).join('') :
+      '<div style="color:var(--muted);text-align:center;padding:20px;">No visit history yet.</div>';
+  }
+}
+
+// ============================================================
+// VENDOR MANAGEMENT
+// ============================================================
+let editingVendorId = null;
+let currentVendorDetailId = null;
+
+function openAddVendorModal(vendorId=null) {
+  editingVendorId = vendorId;
+  document.getElementById('vendor-modal-title').textContent = vendorId ? 'Edit Vendor' : 'Add New Vendor';
+  const vendors = DB.get('vendors');
+  const v = vendorId ? vendors.find(x => x.id === vendorId) : null;
+  document.getElementById('vd-name').value = v?.name || '';
+  document.getElementById('vd-address').value = v?.address || '';
+  document.getElementById('vd-lat').value = v?.lat || '';
+  document.getElementById('vd-lng').value = v?.lng || '';
+  document.getElementById('vd-maps-link').value = v?.mapsLink || '';
+  document.getElementById('vd-products').value = v?.products || '';
+  document.getElementById('vd-category').value = v?.category || 'Average';
+  document.getElementById('vd-terms').value = v?.terms || '';
+  document.getElementById('vd-gst').value = v?.gst || '';
+  document.getElementById('vd-ntn').value = v?.ntn || '';
+  document.getElementById('vd-bank').value = v?.bank || '';
+  document.getElementById('vd-notes').value = v?.notes || '';
+  const container = document.getElementById('vendor-contacts-container');
+  container.innerHTML = '';
+  const contacts = v?.contacts || [{ name:'', designation:'', phone:'' }];
+  contacts.forEach(ct => addVendorContactRow(ct));
+  openModal('modal-vendor');
+}
+
+function addVendorContactRow(data={}) {
+  const container = document.getElementById('vendor-contacts-container');
+  const row = document.createElement('div');
+  row.className = 'contact-row';
+  row.innerHTML = `
+    <input type="text" placeholder="Name" value="${data.name||''}" style="flex:2;">
+    <input type="text" placeholder="Designation" value="${data.designation||''}" style="flex:2;">
+    <input type="tel" placeholder="Phone" value="${data.phone||''}" style="flex:2;">
+    <button onclick="this.parentElement.remove()" style="background:none;border:none;color:#ef4444;cursor:pointer;font-size:18px;flex-shrink:0;">×</button>
+  `;
+  container.appendChild(row);
+}
+
+function saveVendor() {
+  const name = document.getElementById('vd-name').value.trim();
+  const address = document.getElementById('vd-address').value.trim();
+  if(!name || !address) return showToast('Vendor name and address are required.', 'error');
+  const rows = document.getElementById('vendor-contacts-container').querySelectorAll('.contact-row');
+  const contacts = Array.from(rows).map(r => {
+    const ins = r.querySelectorAll('input');
+    return { name: ins[0].value.trim(), designation: ins[1].value.trim(), phone: ins[2].value.trim() };
+  }).filter(c => c.name || c.phone);
+  const vendor = {
+    id: editingVendorId || uid(), name, address,
+    lat: document.getElementById('vd-lat').value.trim(),
+    lng: document.getElementById('vd-lng').value.trim(),
+    mapsLink: document.getElementById('vd-maps-link').value.trim(),
+    products: document.getElementById('vd-products').value.trim(),
+    category: document.getElementById('vd-category').value,
+    terms: document.getElementById('vd-terms').value.trim(),
+    gst: document.getElementById('vd-gst').value.trim(),
+    ntn: document.getElementById('vd-ntn').value.trim(),
+    bank: document.getElementById('vd-bank').value.trim(),
+    notes: document.getElementById('vd-notes').value.trim(),
+    contacts, createdAt: editingVendorId ? undefined : new Date().toISOString()
+  };
+  const vendors = DB.get('vendors');
+  if(editingVendorId) {
+    const idx = vendors.findIndex(v => v.id === editingVendorId);
+    vendor.createdAt = vendors[idx].createdAt;
+    vendors[idx] = vendor;
+  } else {
+    vendors.push(vendor);
+  }
+  DB.set('vendors', vendors);
+  closeModal('modal-vendor');
+  renderVendors();
+  showToast(editingVendorId ? 'Vendor updated!' : 'Vendor added!');
+  editingVendorId = null;
+}
+
+function deleteVendor(id) {
+  if(!confirm('Delete this vendor and all their purchase records?')) return;
+  let vendors = DB.get('vendors');
+  vendors = vendors.filter(v => v.id !== id);
+  DB.set('vendors', vendors);
+  DB.set('vendor_ledger_' + id, []);
+  renderVendors();
+  showToast('Vendor deleted.', 'error');
+}
+
+function getVendorBalance(vendorId) {
+  const entries = DB.get('vendor_ledger_' + vendorId);
+  return entries.reduce((s, e) => s + (e.amount - e.paid), 0);
+}
+
+function renderVendors() {
+  const vendors = DB.get('vendors');
+  const search = document.getElementById('vendor-search').value.toLowerCase();
+  const cat = document.getElementById('vendor-filter-cat').value;
+  const filtered = vendors.filter(v =>
+    (!search || v.name.toLowerCase().includes(search) || v.address.toLowerCase().includes(search) || (v.products||'').toLowerCase().includes(search)) &&
+    (!cat || v.category === cat)
+  );
+  const grid = document.getElementById('vendors-grid');
+  if(!filtered.length) { grid.innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center;">No vendors found. Add your first vendor!</div>'; return; }
+  grid.innerHTML = filtered.map(v => {
+    const balance = getVendorBalance(v.id);
+    return `
+      <div class="card" style="cursor:pointer;" onclick="openVendorDetail('${v.id}')">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:10px;">
+          <div style="font-weight:600;font-size:15px;">${v.name}</div>
+          <span class="badge badge-${v.category.toLowerCase()}">${v.category}</span>
+        </div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:10px;">📍 ${v.address}</div>
+        ${v.products ? `<div style="font-size:13px;color:var(--muted);margin-bottom:10px;">🔧 ${v.products}</div>` : ''}
+        ${v.contacts?.length ? `<div style="font-size:13px;color:var(--muted);margin-bottom:10px;">👤 ${v.contacts[0].name}${v.contacts[0].phone?' · '+v.contacts[0].phone:''}</div>` : ''}
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;font-size:13px;">
+          <span style="color:${balance>0?'#ef4444':'#22c55e'};font-weight:600;">Payable: ${fmt(balance)}</span>
+          ${v.terms ? `<span style="color:var(--muted);">${v.terms}</span>` : ''}
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" onclick="event.stopPropagation()">
+          <button class="btn btn-sm btn-primary" onclick="openAddVendorModal('${v.id}')">Edit</button>
+          <button class="btn btn-sm btn-blue" onclick="openVendorMaps('${v.id}')">📍 Maps</button>
+          <button class="btn btn-sm btn-secondary" onclick="document.getElementById('vledger-vendor-select').value='${v.id}';showPage('vendor-ledger');renderVendorLedger()">Ledger</button>
+          <button class="btn btn-sm btn-danger" onclick="deleteVendor('${v.id}')">Delete</button>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+function openVendorMaps(vendorId) {
+  const vendors = DB.get('vendors');
+  const v = vendors.find(x => x.id === vendorId);
+  const dest = (v.lat && v.lng) ? `${v.lat},${v.lng}` : encodeURIComponent(v.address + ', Pakistan');
+  if(navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const origin = `${pos.coords.latitude},${pos.coords.longitude}`;
+      window.open(`https://www.google.com/maps/dir/${origin}/${dest}`, '_blank');
+    }, () => window.open(`https://www.google.com/maps/dir//${dest}`, '_blank'));
+  } else {
+    window.open(`https://www.google.com/maps/dir//${dest}`, '_blank');
+  }
+}
+
+// ----- VENDOR DETAIL -----
+function openVendorDetail(id) {
+  currentVendorDetailId = id;
+  const vendors = DB.get('vendors');
+  const v = vendors.find(x => x.id === id);
+  document.getElementById('vdetail-name').textContent = v.name;
+  document.getElementById('vdetail-address').textContent = v.address;
+  switchVendorDetailTab('info');
+  openModal('modal-vendor-detail');
+}
+
+function switchVendorDetailTab(tab) {
+  ['info','ledger'].forEach(t => {
+    document.getElementById('vdetail-'+t).style.display = t===tab ? 'block' : 'none';
+  });
+  document.querySelectorAll('#modal-vendor-detail .tab').forEach((el,i) => {
+    el.classList.toggle('active', ['info','ledger'][i] === tab);
+  });
+  const id = currentVendorDetailId;
+  const vendors = DB.get('vendors');
+  const v = vendors.find(x => x.id === id);
+  if(tab === 'info') {
+    document.getElementById('vdetail-info').innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:14px;">
+        <div class="grid-2">
+          <div><label>Vendor Rating</label><div><span class="badge badge-${v.category.toLowerCase()}">${v.category}</span></div></div>
+          <div><label>Payment Terms</label><div style="font-size:14px;">${v.terms||'-'}</div></div>
+        </div>
+        ${v.products ? `<div><label>Products Supplied</label><div style="font-size:14px;">${v.products}</div></div>` : ''}
+        <div class="grid-2">
+          <div><label>GST Number</label><div style="font-size:14px;">${v.gst||'-'}</div></div>
+          <div><label>NTN Number</label><div style="font-size:14px;">${v.ntn||'-'}</div></div>
+        </div>
+        ${v.bank ? `<div><label>Bank Details</label><div style="font-size:14px;">${v.bank}</div></div>` : ''}
+        ${v.lat && v.lng ? `<div class="grid-2"><div><label>Latitude</label><div style="font-size:14px;">${v.lat}</div></div><div><label>Longitude</label><div style="font-size:14px;">${v.lng}</div></div></div>` : ''}
+        ${v.mapsLink ? `<div><label>Maps Link</label><a href="${v.mapsLink}" target="_blank" style="color:var(--accent2);font-size:13px;">${v.mapsLink.substring(0,60)}...</a></div>` : ''}
+        <div>
+          <label>Contact Persons</label>
+          ${v.contacts?.map(ct => `<div class="contact-row" style="margin-bottom:8px;"><div style="flex:1;"><div style="font-weight:500;">${ct.name}</div><div style="font-size:12px;color:var(--muted);">${ct.designation||''}</div></div><div style="color:var(--accent2);font-size:14px;">${ct.phone||''}</div></div>`).join('')||'<div style="color:var(--muted);font-size:14px;">No contacts added.</div>'}
+        </div>
+        ${v.notes ? `<div><label>Notes</label><div style="font-size:14px;color:var(--text);">${v.notes}</div></div>` : ''}
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-primary" onclick="closeModal('modal-vendor-detail');openAddVendorModal('${id}')">Edit Vendor</button>
+          <button class="btn btn-blue" onclick="openVendorMaps('${id}')">📍 Open in Maps</button>
+          <button class="btn btn-secondary" onclick="closeModal('modal-vendor-detail');document.getElementById('vledger-vendor-select').value='${id}';showPage('vendor-ledger');renderVendorLedger()">View Ledger</button>
+        </div>
+      </div>`;
+  } else if(tab === 'ledger') {
+    const entries = DB.get('vendor_ledger_' + id);
+    const total = entries.reduce((s,e) => s+e.amount, 0);
+    const paid = entries.reduce((s,e) => s+e.paid, 0);
+    document.getElementById('vdetail-ledger').innerHTML = `
+      <div style="display:flex;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <div style="font-size:13px;">Total: <b style="color:var(--accent)">${fmt(total)}</b> | Paid: <b style="color:var(--green)">${fmt(paid)}</b> | Payable: <b style="color:var(--red)">${fmt(total-paid)}</b></div>
+        <button class="btn btn-sm btn-primary" onclick="closeModal('modal-vendor-detail');document.getElementById('vledger-vendor-select').value='${id}';showPage('vendor-ledger');renderVendorLedger()">Manage Ledger</button>
+      </div>
+      ${entries.length ? `<div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Bill #</th><th>Amount</th><th>Paid</th><th>Balance</th></tr></thead><tbody>${entries.map(e => {
+        const bal = e.amount - e.paid;
+        return `<tr><td>${e.date}</td><td>${e.invoice||'-'}</td><td>${fmt(e.amount)}</td><td>${fmt(e.paid)}</td><td style="color:${bal>0?'var(--red)':'var(--green)'}">${fmt(bal)}</td></tr>`;
+      }).join('')}</tbody></table></div>` : '<div style="color:var(--muted);text-align:center;padding:20px;">No purchase entries yet.</div>'}`;
+  }
+}
+
+// ----- VENDOR LEDGER -----
+function populateVendorLedgerSelect() {
+  const vendors = DB.get('vendors');
+  const sel = document.getElementById('vledger-vendor-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Select Vendor —</option>' + vendors.map(v => `<option value="${v.id}">${v.name}</option>`).join('');
+  if(cur) { sel.value = cur; renderVendorLedger(); }
+}
+
+function renderVendorLedger() {
+  const id = document.getElementById('vledger-vendor-select').value;
+  const addBtn = document.getElementById('add-vendor-entry-btn');
+  const expBtn = document.getElementById('export-vledger-btn');
+  addBtn.disabled = !id;
+  expBtn.disabled = !id;
+  if(!id) { document.getElementById('vledger-table-wrap').innerHTML = '<div style="color:var(--muted);font-size:14px;text-align:center;padding:40px;">Select a vendor to view their ledger.</div>'; document.getElementById('vledger-summary').style.display='none'; return; }
+  const entries = DB.get('vendor_ledger_' + id);
+  const total = entries.reduce((s,e) => s+e.amount, 0);
+  const paid = entries.reduce((s,e) => s+e.paid, 0);
+  document.getElementById('vls-total').textContent = fmt(total);
+  document.getElementById('vls-paid').textContent = fmt(paid);
+  document.getElementById('vls-balance').textContent = fmt(total-paid);
+  document.getElementById('vledger-summary').style.display = 'grid';
+  if(!entries.length) {
+    document.getElementById('vledger-table-wrap').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">No purchase entries yet. Add a bill.</div>';
+    return;
+  }
+  let runBal = 0;
+  const rows = entries.map(e => {
+    runBal += (e.amount - e.paid);
+    const bal = e.amount - e.paid;
+    const status = bal<=0 ? ['Cleared','var(--green)'] : ['Payable','var(--red)'];
+    return `<tr>
+      <td>${e.date}</td>
+      <td>${e.invoice||'-'}</td>
+      <td>${fmt(e.amount)}</td>
+      <td>${fmt(e.paid)}</td>
+      <td style="color:${status[1]};font-weight:600;">${fmt(bal)}</td>
+      <td>${e.dueDate||'-'}</td>
+      <td>${fmt(runBal)}</td>
+      <td><span style="color:${status[1]};font-size:12px;font-weight:600;">${status[0]}</span></td>
+      <td>
+        <button class="btn btn-sm btn-secondary" onclick="editVendorEntry('${id}','${e.id}')">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteVendorEntry('${id}','${e.id}')">Del</button>
+      </td>
+    </tr>`;
+  });
+  document.getElementById('vledger-table-wrap').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Bill #</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Due Date</th><th>Running Bal</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+
+function openAddVendorEntryModal(entryId=null) {
+  const id = document.getElementById('vledger-vendor-select').value;
+  if(!id) return;
+  const entries = DB.get('vendor_ledger_' + id);
+  const e = entryId ? entries.find(x => x.id === entryId) : null;
+  document.getElementById('ve-date').value = e?.date || today();
+  document.getElementById('ve-invoice').value = e?.invoice || '';
+  document.getElementById('ve-amount').value = e?.amount || '';
+  document.getElementById('ve-paid').value = e?.paid || 0;
+  document.getElementById('ve-due-date').value = e?.dueDate || '';
+  document.getElementById('ve-notes').value = e?.notes || '';
+  document.getElementById('modal-vendor-entry').dataset.editId = entryId || '';
+  openModal('modal-vendor-entry');
+}
+
+function editVendorEntry(vendorId, entryId) {
+  document.getElementById('vledger-vendor-select').value = vendorId;
+  openAddVendorEntryModal(entryId);
+}
+
+function saveVendorLedgerEntry() {
+  const id = document.getElementById('vledger-vendor-select').value;
+  const amount = parseFloat(document.getElementById('ve-amount').value) || 0;
+  if(!amount) return showToast('Amount is required.', 'error');
+  const entries = DB.get('vendor_ledger_' + id);
+  const editId = document.getElementById('modal-vendor-entry').dataset.editId;
+  const entry = {
+    id: editId || uid(),
+    date: document.getElementById('ve-date').value,
+    invoice: document.getElementById('ve-invoice').value.trim(),
+    amount,
+    paid: parseFloat(document.getElementById('ve-paid').value) || 0,
+    dueDate: document.getElementById('ve-due-date').value,
+    notes: document.getElementById('ve-notes').value.trim()
+  };
+  if(editId) { const idx = entries.findIndex(e => e.id === editId); entries[idx] = entry; }
+  else { entries.push(entry); }
+  DB.set('vendor_ledger_' + id, entries);
+  closeModal('modal-vendor-entry');
+  renderVendorLedger();
+  showToast('Purchase entry saved!');
+}
+
+function deleteVendorEntry(vendorId, entryId) {
+  if(!confirm('Delete this purchase entry?')) return;
+  let entries = DB.get('vendor_ledger_' + vendorId);
+  entries = entries.filter(e => e.id !== entryId);
+  DB.set('vendor_ledger_' + vendorId, entries);
+  renderVendorLedger();
+}
+
+function exportVendorLedgerCSV() {
+  const id = document.getElementById('vledger-vendor-select').value; if(!id) return;
+  const vendors = DB.get('vendors'); const v = vendors.find(x=>x.id===id);
+  const entries = DB.get('vendor_ledger_'+id);
+  const rows = [['Date','Bill #','Amount','Paid','Balance','Due Date','Notes']];
+  entries.forEach(e => rows.push([e.date, e.invoice||'', e.amount, e.paid, e.amount-e.paid, e.dueDate||'', e.notes||'']));
+  downloadCSV(rows, `vendor-ledger-${v.name}-${today()}.csv`);
+}
+
+
+function getClientOverdueDays(clientId) {
+  const entries = DB.get('ledger_' + clientId);
+  let maxDays = 0;
+  entries.forEach(e => {
+    const bal = e.amount - e.paid;
+    if(bal > 0 && e.dueDate) {
+      const d = daysBetween(e.dueDate, today());
+      if(d > maxDays) maxDays = d;
+    }
+  });
+  return maxDays;
+}
+
+function populateLedgerSelect() {
+  const clients = DB.get('clients');
+  const sel = document.getElementById('ledger-client-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Select Client —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  if(cur) { sel.value = cur; renderLedger(); }
+}
+
+function renderLedger() {
+  const id = document.getElementById('ledger-client-select').value;
+  const addBtn = document.getElementById('add-entry-btn');
+  const expBtn = document.getElementById('export-ledger-btn');
+  addBtn.disabled = !id;
+  expBtn.disabled = !id;
+  if(!id) { document.getElementById('ledger-table-wrap').innerHTML = '<div style="color:var(--muted);font-size:14px;text-align:center;padding:40px;">Select a client to view their ledger.</div>'; document.getElementById('ledger-summary').style.display='none'; return; }
+  const entries = DB.get('ledger_' + id);
+  const total = entries.reduce((s,e) => s+e.amount, 0);
+  const paid = entries.reduce((s,e) => s+e.paid, 0);
+  document.getElementById('ls-total').textContent = fmt(total);
+  document.getElementById('ls-paid').textContent = fmt(paid);
+  document.getElementById('ls-balance').textContent = fmt(total-paid);
+  document.getElementById('ledger-summary').style.display = 'grid';
+  if(!entries.length) {
+    document.getElementById('ledger-table-wrap').innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;">No ledger entries yet. Add an invoice.</div>';
+    return;
+  }
+  let runBal = 0;
+  const rows = entries.map(e => {
+    runBal += (e.amount - e.paid);
+    const days = e.dueDate ? daysBetween(e.dueDate, today()) : -999;
+    const bal = e.amount - e.paid;
+    const status = bal<=0 ? ['Cleared','var(--green)'] : days > 45 ? ['Overdue 45+d','var(--red)'] : days > 0 ? ['Overdue','var(--red)'] : days > -7 ? ['Due Soon','var(--yellow)'] : ['Pending','var(--muted)'];
+    return `<tr>
+      <td>${e.date}</td>
+      <td>${e.invoice||'-'}</td>
+      <td>${fmt(e.amount)}</td>
+      <td>${fmt(e.paid)}</td>
+      <td style="color:${status[1]};font-weight:600;">${fmt(bal)}</td>
+      <td>${e.dueDate||'-'}</td>
+      <td>${fmt(runBal)}</td>
+      <td><span style="color:${status[1]};font-size:12px;font-weight:600;">${status[0]}</span></td>
+      <td>
+        <button class="btn btn-sm btn-secondary" onclick="editEntry('${id}','${e.id}')">Edit</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteEntry('${id}','${e.id}')">Del</button>
+        ${bal>0 && days>45?`<button class="btn btn-sm btn-green" onclick="openWhatsAppForEntry('${id}','${e.id}')">📱</button>`:''}
+      </td>
+    </tr>`;
+  });
+  document.getElementById('ledger-table-wrap').innerHTML = `<div style="overflow-x:auto;"><table><thead><tr><th>Date</th><th>Invoice</th><th>Amount</th><th>Paid</th><th>Balance</th><th>Due Date</th><th>Running Bal</th><th>Status</th><th>Actions</th></tr></thead><tbody>${rows.join('')}</tbody></table></div>`;
+}
+
+function openAddEntryModal(entryId=null) {
+  const id = document.getElementById('ledger-client-select').value;
+  if(!id) return;
+  const entries = DB.get('ledger_' + id);
+  const e = entryId ? entries.find(x => x.id === entryId) : null;
+  document.getElementById('e-date').value = e?.date || today();
+  document.getElementById('e-invoice').value = e?.invoice || '';
+  document.getElementById('e-amount').value = e?.amount || '';
+  document.getElementById('e-paid').value = e?.paid || 0;
+  document.getElementById('e-due-date').value = e?.dueDate || '';
+  document.getElementById('e-notes').value = e?.notes || '';
+  document.getElementById('modal-entry').dataset.editId = entryId || '';
+  openModal('modal-entry');
+}
+
+function editEntry(clientId, entryId) {
+  document.getElementById('ledger-client-select').value = clientId;
+  openAddEntryModal(entryId);
+}
+
+function saveLedgerEntry() {
+  const id = document.getElementById('ledger-client-select').value;
+  const amount = parseFloat(document.getElementById('e-amount').value) || 0;
+  if(!amount) return showToast('Amount is required.', 'error');
+  const entries = DB.get('ledger_' + id);
+  const editId = document.getElementById('modal-entry').dataset.editId;
+  const entry = {
+    id: editId || uid(),
+    date: document.getElementById('e-date').value,
+    invoice: document.getElementById('e-invoice').value.trim(),
+    amount,
+    paid: parseFloat(document.getElementById('e-paid').value) || 0,
+    dueDate: document.getElementById('e-due-date').value,
+    notes: document.getElementById('e-notes').value.trim()
+  };
+  if(editId) { const idx = entries.findIndex(e => e.id === editId); entries[idx] = entry; }
+  else { entries.push(entry); }
+  DB.set('ledger_' + id, entries);
+  closeModal('modal-entry');
+  renderLedger();
+  refreshDashboard();
+  showToast('Entry saved!');
+}
+
+function deleteEntry(clientId, entryId) {
+  if(!confirm('Delete this ledger entry?')) return;
+  let entries = DB.get('ledger_' + clientId);
+  entries = entries.filter(e => e.id !== entryId);
+  DB.set('ledger_' + clientId, entries);
+  renderLedger();
+  refreshDashboard();
+}
+
+function filterOverdue() {
+  // No filter in current ledger, just scroll to overdue section
+}
+
+// ============================================================
+// OVERDUE NOTIFICATIONS
+// ============================================================
+function checkOverdue() {
+  const clients = DB.get('clients');
+  const overdue = [];
+  clients.forEach(c => {
+    const entries = DB.get('ledger_' + c.id);
+    entries.forEach(e => {
+      const bal = e.amount - e.paid;
+      if(bal > 0 && e.dueDate && daysBetween(e.dueDate, today()) >= 45) {
+        overdue.push({ client: c, entry: e, days: daysBetween(e.dueDate, today()), balance: bal });
+      }
+    });
+  });
+  const banner = document.getElementById('overdue-banner');
+  const list = document.getElementById('overdue-list');
+  if(!overdue.length) { banner.style.display = 'none'; return; }
+  banner.style.display = 'block';
+  list.innerHTML = overdue.map(o => `
+    <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(239,68,68,0.2);font-size:13px;">
+      <div>
+        <b>${o.client.name}</b> — <span style="color:var(--red)">${fmt(o.balance)}</span>
+        <span style="color:var(--muted);"> (${o.days} days overdue)</span>
+      </div>
+      <button class="btn btn-sm btn-secondary" onclick="openWhatsApp('${o.client.id}')">📱 WA Msg</button>
+    </div>`).join('');
+}
+
+function getOverdueClients() {
+  const clients = DB.get('clients');
+  const overdue = [];
+  clients.forEach(c => {
+    const entries = DB.get('ledger_' + c.id);
+    const overdueEntries = entries.filter(e => {
+      const bal = e.amount - e.paid;
+      return bal > 0 && e.dueDate && daysBetween(e.dueDate, today()) >= 45;
+    });
+    if(overdueEntries.length) {
+      const totalBal = overdueEntries.reduce((s,e) => s+(e.amount-e.paid), 0);
+      const maxDays = Math.max(...overdueEntries.map(e => daysBetween(e.dueDate, today())));
+      overdue.push({ client: c, totalBal, maxDays, entries: overdueEntries });
+    }
+  });
+  return overdue;
+}
+
+// ============================================================
+// WHATSAPP MESSAGE
+// ============================================================
+function openWhatsApp(clientId) {
+  const clients = DB.get('clients');
+  const c = clients.find(x => x.id === clientId);
+  const entries = DB.get('ledger_' + clientId);
+  const overdueEntries = entries.filter(e => {
+    const bal = e.amount - e.paid;
+    return bal > 0 && e.dueDate && daysBetween(e.dueDate, today()) >= 45;
+  });
+  const totalBal = overdueEntries.reduce((s,e) => s+(e.amount-e.paid), 0);
+  const oldestDue = overdueEntries.sort((a,b) => new Date(a.dueDate)-new Date(b.dueDate))[0];
+  const contact = c.contacts?.[0];
+  const msg = `Dear ${contact?.name || 'Sir/Madam'},
+
+I hope this message finds you well. This is a gentle reminder from our side regarding an outstanding balance of *PKR ${Number(totalBal).toLocaleString()}* against ${c.name}, which has been due since *${oldestDue?.dueDate || 'N/A'}*.
+
+We would greatly appreciate if you could arrange the clearance at your earliest convenience. Please feel free to reach out if you have any queries or wish to discuss a payment plan.
+
+Thank you for your continued trust and business relationship.
+
+Best regards,
+Sales Team`;
+  document.getElementById('whatsapp-content').innerHTML = `
+    <div class="whatsapp-msg">${msg.replace(/\n/g,'<br>').replace(/\*(.*?)\*/g,'<b>$1</b>')}</div>
+    <textarea id="wa-msg-text" style="position:absolute;left:-9999px;">${msg}</textarea>`;
+  openModal('modal-whatsapp');
+}
+
+function openWhatsAppForEntry(clientId, entryId) {
+  openWhatsApp(clientId);
+}
+
+function copyWhatsApp() {
+  const t = document.getElementById('wa-msg-text');
+  t.style.position = 'static';
+  t.select();
+  document.execCommand('copy');
+  t.style.position = 'absolute';
+  showToast('Message copied! Paste in WhatsApp.');
+}
+
+// ============================================================
+// GOOGLE MAPS
+// ============================================================
+function openMaps(clientId) {
+  const clients = DB.get('clients');
+  const c = clients.find(x => x.id === clientId);
+  const dest = (c.lat && c.lng) ? `${c.lat},${c.lng}` : encodeURIComponent(c.address + ', Pakistan');
+  if(navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(pos => {
+      const origin = `${pos.coords.latitude},${pos.coords.longitude}`;
+      window.open(`https://www.google.com/maps/dir/${origin}/${dest}`, '_blank');
+    }, () => {
+      window.open(`https://www.google.com/maps/dir//${dest}`, '_blank');
+    });
+  } else {
+    window.open(`https://www.google.com/maps/dir//${dest}`, '_blank');
+  }
+}
+
+function openMapsFromLocation(dest, fromLat=null, fromLng=null) {
+  const origin = (fromLat && fromLng) ? `${fromLat},${fromLng}` : '';
+  window.open(`https://www.google.com/maps/dir/${origin}/${dest}`, '_blank');
+}
+
+function detectLocation() {
+  if(!navigator.geolocation) return showToast('Geolocation not supported.', 'error');
+  navigator.geolocation.getCurrentPosition(pos => {
+    currentLat = pos.coords.latitude;
+    currentLng = pos.coords.longitude;
+    document.getElementById('start-location').value = `${currentLat.toFixed(4)}, ${currentLng.toFixed(4)}`;
+    showToast('Location detected!');
+  }, () => showToast('Could not detect location.', 'error'));
+}
+
+// ============================================================
+// LAHORE TRAFFIC LOGIC
+// ============================================================
+function getTrafficMultiplier(hour, area='') {
+  const areaLow = area.toLowerCase();
+  // Morning rush 8-10 AM
+  if(hour >= 8 && hour < 10) {
+    if(areaLow.includes('gulberg') || areaLow.includes('mall road') || areaLow.includes('jail road') || areaLow.includes('ferozepur') || areaLow.includes('mm alam')) return 2.2;
+    return 1.8;
+  }
+  // Midday lull 10-12:30
+  if(hour >= 10 && hour < 12.5) {
+    if(areaLow.includes('hall road') || areaLow.includes('akbari') || areaLow.includes('brandreth')) return 1.0;
+    if(areaLow.includes('kot lakhpat') || areaLow.includes('sundar') || areaLow.includes('quaid-e-azam industrial')) return 0.9;
+    return 1.0;
+  }
+  // Post-Zuhr 1-2 PM
+  if(hour >= 13 && hour < 14) return 1.3;
+  // Good window 2:30-4 PM
+  if(hour >= 14.5 && hour < 16) {
+    if(areaLow.includes('hall road') || areaLow.includes('akbari') || areaLow.includes('brandreth')) return 1.0;
+    return 1.2;
+  }
+  // Peak afternoon 4:30-7 PM
+  if(hour >= 16.5 && hour < 19) return 2.5;
+  return 1.2;
+}
+
+function getAreaTip(area, hour) {
+  const a = area.toLowerCase();
+  const tips = [];
+  if((a.includes('hall road') || a.includes('akbari') || a.includes('brandreth')) && (hour < 10.5 || (hour > 12.5 && hour < 14.5)))
+    tips.push('⚡ Electrical market — best window: 10:30AM–12:30PM or 2:30–4PM');
+  if((a.includes('kot lakhpat') || a.includes('sundar') || a.includes('quaid-e-azam')) && hour > 13)
+    tips.push('🏭 Industrial area — best visited before 1PM');
+  if(hour >= 16.5) tips.push('🚦 Peak Lahore rush hour — consider Ring Road over inner city');
+  return tips;
+}
+
+function estimateTravelMinutes(fromArea, toArea, currentHour) {
+  const mult = getTrafficMultiplier(currentHour, fromArea + ' ' + toArea);
+  const base = 20; // base travel 20 min between Lahore areas
+  return Math.round(base * mult);
+}
+
+// ============================================================
+// VISIT PLANNER
+// ============================================================
+function generatePlan() {
+  const startTime = document.getElementById('visit-start').value;
+  const endTime = document.getElementById('visit-end').value;
+  const startLoc = document.getElementById('start-location').value.trim();
+  const priority = document.getElementById('priority-focus').value;
+  if(!startTime || !endTime) return showToast('Please set start and end time.', 'error');
+
+  const clients = DB.get('clients');
+  if(!clients.length) return showToast('No clients found. Add clients first.', 'error');
+
+  let [sh, sm] = startTime.split(':').map(Number);
+  let [eh, em] = endTime.split(':').map(Number);
+  const totalMins = (eh*60+em) - (sh*60+sm);
+  const VISIT_TIME = 45;
+
+  // Score clients
+  const scored = clients.map(c => {
+    let score = 0;
+    const overdueDays = getClientOverdueDays(c.id);
+    if(overdueDays >= 45) score += 100;
+    else if(overdueDays > 0) score += 50;
+    if(c.category === 'Poor') score += 40;
+    else if(c.category === 'Average') score += 25;
+    const visits = DB.get('visits_' + c.id);
+    const lastVisit = visits.length ? new Date(visits[visits.length-1].datetime) : null;
+    if(!lastVisit) score += 30;
+    else { const daysGap = daysBetween(lastVisit.toISOString().split('T')[0], today()); score += Math.min(daysGap, 30); }
+    const balance = DB.get('ledger_' + c.id).reduce((s,e) => s+(e.amount-e.paid), 0);
+    if(balance > 0) score += 10;
+    return { ...c, score, overdueDays, balance };
+  });
+
+  let sorted;
+  if(priority === 'overdue') sorted = scored.filter(c => c.overdueDays >= 45).sort((a,b) => b.score-a.score);
+  else if(priority === 'area') sorted = scored.sort((a,b) => a.address.localeCompare(b.address));
+  else if(priority === 'category') {
+    const order = { Poor:0, Average:1, Good:2, Excellent:3 };
+    sorted = scored.sort((a,b) => order[a.category]-order[b.category]);
+  } else sorted = scored.sort((a,b) => b.score-a.score);
+
+  // Build plan
+  let curMins = sh*60+sm;
+  const endMins = eh*60+em;
+  const plan = [];
+  let prevArea = startLoc || 'Starting Location';
+
+  for(const c of sorted) {
+    const curHour = Math.floor(curMins/60) + (curMins%60)/60;
+    const travel = estimateTravelMinutes(prevArea, c.address, curHour);
+    const arrival = curMins + travel;
+    const departure = arrival + VISIT_TIME;
+    if(departure > endMins) break;
+    const arrH = Math.floor(arrival/60).toString().padStart(2,'0');
+    const arrM = (arrival%60).toString().padStart(2,'0');
+    const depH = Math.floor(departure/60).toString().padStart(2,'0');
+    const depM = (departure%60).toString().padStart(2,'0');
+    const tips = getAreaTip(c.address, curHour);
+    plan.push({ ...c, arrivalStr:`${arrH}:${arrM}`, departureStr:`${depH}:${depM}`, travel, tips });
+    curMins = departure;
+    prevArea = c.address;
+  }
+
+  todayPlan = plan;
+  DB.setObj('today_plan', { date: today(), plan: plan.map(p => p.id) });
+
+  const out = document.getElementById('planner-output');
+  if(!plan.length) { out.innerHTML = '<div class="card" style="text-align:center;color:var(--muted);padding:40px;">No clients can be fit into the given time window. Try extending your hours.</div>'; return; }
+
+  const maxPossible = Math.floor(totalMins / (VISIT_TIME + 20));
+  out.innerHTML = `
+    <div class="card" style="margin-bottom:16px;background:rgba(249,115,22,0.1);border-color:rgba(249,115,22,0.4);">
+      <div style="font-size:15px;font-weight:600;color:var(--accent);">📋 Optimized Route — ${plan.length} Visits</div>
+      <div style="font-size:13px;color:var(--muted);margin-top:6px;">You can complete <b style="color:var(--text)">${plan.length}</b> visits today between <b style="color:var(--text)">${startTime}</b> and <b style="color:var(--text)">${endTime}</b>. Max possible: ~${maxPossible}.</div>
+    </div>
+    ${plan.map((c,i) => `
+      <div class="visit-card">
+        <div style="display:flex;gap:14px;align-items:flex-start;">
+          <div class="stop-num">${i+1}</div>
+          <div style="flex:1;">
+            <div style="font-weight:600;font-size:15px;margin-bottom:4px;">${c.name}</div>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:8px;">📍 ${c.address}</div>
+            <div style="display:flex;gap:16px;flex-wrap:wrap;font-size:13px;margin-bottom:8px;">
+              <span>🕐 Arrive: <b style="color:var(--accent2)">${c.arrivalStr}</b></span>
+              <span>🕑 Depart: <b>${c.departureStr}</b></span>
+              <span>🚗 Travel: ~${c.travel} min</span>
+              <span class="badge badge-${c.category.toLowerCase()}">${c.category}</span>
+            </div>
+            ${c.overdueDays >= 45 ? `<div style="color:var(--red);font-size:12px;margin-bottom:6px;">⚠ OVERDUE ${c.overdueDays} days — ${fmt(c.balance)}</div>` : ''}
+            ${c.tips.map(t => `<div style="font-size:12px;color:var(--yellow);margin-bottom:4px;">${t}</div>`).join('')}
+            <div style="display:flex;gap:8px;margin-top:10px;flex-wrap:wrap;">
+              <button class="btn btn-sm btn-blue" onclick="openMaps('${c.id}')">📍 Open Maps</button>
+              <button class="btn btn-sm btn-green" onclick="openVisitModal('${c.id}')">✓ Mark Visited</button>
+              ${c.balance > 0 ? `<button class="btn btn-sm btn-secondary" onclick="openWhatsApp('${c.id}')">📱 WA Msg</button>` : ''}
+            </div>
+          </div>
+        </div>
+      </div>`).join('')}`;
+  showToast(`Plan generated: ${plan.length} visits!`);
+}
+
+// ============================================================
+// VISIT TRACKING
+// ============================================================
+function openVisitModal(clientId) {
+  currentVisitClientId = clientId;
+  const clients = DB.get('clients');
+  const c = clients.find(x => x.id === clientId);
+  document.getElementById('visit-client-name').textContent = c.name + ' — ' + c.address;
+  const now = new Date();
+  const localDT = new Date(now - now.getTimezoneOffset()*60000).toISOString().slice(0,16);
+  document.getElementById('v-datetime').value = localDT;
+  document.getElementById('v-outcome').value = 'Positive';
+  document.getElementById('v-requirements').value = '';
+  document.getElementById('v-future').value = '';
+  document.getElementById('v-next-date').value = '';
+  document.getElementById('v-remarks').value = '';
+  openModal('modal-visit');
+}
+
+function saveVisit() {
+  const id = currentVisitClientId;
+  const visits = DB.get('visits_' + id);
+  visits.push({
+    id: uid(),
+    clientId: id,
+    datetime: document.getElementById('v-datetime').value,
+    outcome: document.getElementById('v-outcome').value,
+    requirements: document.getElementById('v-requirements').value.trim(),
+    future: document.getElementById('v-future').value.trim(),
+    nextDate: document.getElementById('v-next-date').value,
+    remarks: document.getElementById('v-remarks').value.trim()
+  });
+  DB.set('visits_' + id, visits);
+  closeModal('modal-visit');
+  refreshDashboard();
+  showToast('Visit logged!');
+}
+
+function populateVisitClientSelect() {
+  const clients = DB.get('clients');
+  const sel = document.getElementById('visit-client-select');
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">— Select Client —</option>' + clients.map(c => `<option value="${c.id}">${c.name}</option>`).join('');
+  if(cur) { sel.value = cur; renderVisitHistory(); }
+}
+
+function renderVisitHistory() {
+  const id = document.getElementById('visit-client-select').value;
+  const dateFilter = document.getElementById('visit-date-filter').value;
+  const div = document.getElementById('visit-history-list');
+  if(!id) { div.innerHTML = '<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px;">Select a client to view visit history.</div>'; return; }
+  let visits = DB.get('visits_' + id);
+  if(dateFilter) visits = visits.filter(v => v.datetime?.startsWith(dateFilter));
+  const colors = { Positive:'var(--green)', Neutral:'var(--accent2)', Negative:'var(--red)', 'Follow-up Required':'var(--yellow)' };
+  div.innerHTML = visits.length ? visits.slice().reverse().map(v => `
+    <div class="card" style="margin-bottom:12px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+        <span style="font-size:13px;color:var(--muted);">${v.datetime?.replace('T',' ')||'N/A'}</span>
+        <span style="color:${colors[v.outcome]||'var(--text)'};font-weight:600;font-size:13px;">${v.outcome}</span>
+      </div>
+      ${v.requirements?`<div style="margin-bottom:8px;"><label>Requirements Discussed</label><div style="font-size:14px;">${v.requirements}</div></div>`:''}
+      ${v.future?`<div style="margin-bottom:8px;"><label>Future Plans</label><div style="font-size:14px;">${v.future}</div></div>`:''}
+      ${v.nextDate?`<div style="margin-bottom:8px;font-size:13px;color:var(--accent2);">📅 Next Visit Scheduled: ${v.nextDate}</div>`:''}
+      ${v.remarks?`<div style="font-size:13px;color:var(--muted);">${v.remarks}</div>`:''}
+      <div style="margin-top:10px;"><button class="btn btn-sm btn-danger" onclick="deleteVisit('${id}','${v.id}')">Delete</button></div>
+    </div>`).join('') :
+    '<div style="color:var(--muted);text-align:center;padding:40px;font-size:14px;">No visits found for selected filters.</div>';
+}
+
+function deleteVisit(clientId, visitId) {
+  if(!confirm('Delete this visit log?')) return;
+  let visits = DB.get('visits_' + clientId);
+  visits = visits.filter(v => v.id !== visitId);
+  DB.set('visits_' + clientId, visits);
+  renderVisitHistory();
+  refreshDashboard();
+}
+
+// ============================================================
+// REPORTS
+// ============================================================
+function generateReport() {
+  const date = document.getElementById('report-date').value || today();
+  const clients = DB.get('clients');
+  const allVisits = [];
+  clients.forEach(c => {
+    const visits = DB.get('visits_' + c.id);
+    visits.forEach(v => { if(v.datetime?.startsWith(date)) allVisits.push({ ...v, clientName: c.name, clientAddr: c.address }); });
+  });
+  const div = document.getElementById('report-output');
+  if(!allVisits.length) {
+    div.innerHTML = '<div class="card" style="color:var(--muted);text-align:center;padding:40px;">No visits recorded for this date.</div>';
+    return;
+  }
+  const outcomes = { Positive:0, Neutral:0, Negative:0, 'Follow-up Required':0 };
+  allVisits.forEach(v => { if(outcomes[v.outcome]!==undefined) outcomes[v.outcome]++; });
+  const colors = { Positive:'var(--green)', Neutral:'var(--accent2)', Negative:'var(--red)', 'Follow-up Required':'var(--yellow)' };
+  div.innerHTML = `
+    <div class="card" id="printable-report">
+      <div style="border-bottom:2px solid var(--accent);padding-bottom:16px;margin-bottom:20px;">
+        <div style="font-size:20px;font-weight:700;color:var(--accent);">⚡ FICO Sales — Daily Visit Report</div>
+        <div style="font-size:14px;color:var(--muted);margin-top:4px;">Date: ${date} | Generated: ${new Date().toLocaleString()}</div>
+      </div>
+      <div class="grid-4" style="margin-bottom:20px;">
+        <div class="stat-card"><div class="value" style="color:var(--accent2);">${allVisits.length}</div><div class="label">Total Visits</div></div>
+        <div class="stat-card"><div class="value" style="color:var(--green);">${outcomes.Positive}</div><div class="label">Positive</div></div>
+        <div class="stat-card"><div class="value" style="color:var(--yellow);">${outcomes['Follow-up Required']}</div><div class="label">Follow-ups</div></div>
+        <div class="stat-card"><div class="value" style="color:var(--red);">${outcomes.Negative}</div><div class="label">Negative</div></div>
+      </div>
+      <div style="font-weight:600;margin-bottom:14px;font-size:16px;">Visit Details</div>
+      ${allVisits.map((v,i) => `
+        <div style="border:1px solid var(--border);border-radius:10px;padding:16px;margin-bottom:12px;">
+          <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:8px;">
+            <div><b style="font-size:15px;">${i+1}. ${v.clientName}</b><br><span style="font-size:12px;color:var(--muted);">📍 ${v.clientAddr}</span></div>
+            <span style="color:${colors[v.outcome]||'var(--text)'};font-weight:700;">${v.outcome}</span>
+          </div>
+          <div style="font-size:13px;color:var(--muted);">🕐 ${v.datetime?.replace('T',' ')||'N/A'}</div>
+          ${v.requirements?`<div style="margin-top:8px;font-size:13px;"><b>Requirements:</b> ${v.requirements}</div>`:''}
+          ${v.future?`<div style="margin-top:6px;font-size:13px;"><b>Future Plans:</b> ${v.future}</div>`:''}
+          ${v.nextDate?`<div style="margin-top:6px;font-size:13px;color:var(--accent2);">📅 Next: ${v.nextDate}</div>`:''}
+          ${v.remarks?`<div style="margin-top:6px;font-size:13px;color:var(--muted);">${v.remarks}</div>`:''}
+        </div>`).join('')}
+    </div>`;
+}
+
+function printReport() {
+  const content = document.getElementById('printable-report');
+  if(!content) return showToast('Generate report first.', 'error');
+  const w = window.open('', '_blank');
+  w.document.write(`<html><head><title>Daily Report</title><style>body{font-family:Arial,sans-serif;padding:20px;background:#fff;color:#111;} .grid-4{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;} .stat-card{border:1px solid #ddd;border-radius:8px;padding:12px;} .value{font-size:24px;font-weight:700;} .label{font-size:12px;color:#666;}</style></head><body>${content.innerHTML}</body></html>`);
+  w.document.close();
+  w.print();
+}
+
+function downloadReportPDF() {
+  const content = document.getElementById('printable-report');
+  if(!content) return showToast('Generate report first.', 'error');
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const date = document.getElementById('report-date').value || today();
+  doc.setFontSize(16); doc.setTextColor(249,115,22);
+  doc.text('FICO Sales - Daily Visit Report', 14, 20);
+  doc.setFontSize(11); doc.setTextColor(100,100,100);
+  doc.text('Date: ' + date, 14, 30);
+  const clients = DB.get('clients');
+  let y = 42;
+  let visitCount = 0;
+  clients.forEach(c => {
+    const visits = DB.get('visits_' + c.id).filter(v => v.datetime?.startsWith(date));
+    visits.forEach(v => {
+      visitCount++;
+      if(y > 270) { doc.addPage(); y = 20; }
+      doc.setFontSize(12); doc.setTextColor(30,30,30);
+      doc.text(`${visitCount}. ${c.name}`, 14, y); y += 6;
+      doc.setFontSize(10); doc.setTextColor(100,100,100);
+      doc.text(`Address: ${c.address}`, 14, y); y += 5;
+      doc.text(`Outcome: ${v.outcome}`, 14, y); y += 5;
+      if(v.requirements) { const lines = doc.splitTextToSize('Requirements: '+v.requirements, 180); doc.text(lines, 14, y); y += lines.length * 5; }
+      if(v.remarks) { doc.text('Remarks: '+v.remarks.substring(0,80), 14, y); y += 5; }
+      y += 4;
+      doc.setDrawColor(200,200,200); doc.line(14, y, 196, y); y += 5;
+    });
+  });
+  if(!visitCount) return showToast('No visits to export.', 'error');
+  doc.save(`visit-report-${date}.pdf`);
+}
+
+// ============================================================
+// DASHBOARD
+// ============================================================
+function refreshDashboard() {
+  const clients = DB.get('clients');
+  document.getElementById('stat-total-clients').textContent = clients.length;
+
+  let totalOutstanding = 0;
+  clients.forEach(c => {
+    const entries = DB.get('ledger_' + c.id);
+    totalOutstanding += entries.reduce((s,e) => s+(e.amount-e.paid), 0);
+  });
+  document.getElementById('stat-outstanding').textContent = fmt(totalOutstanding);
+
+  const vendors = DB.get('vendors');
+  document.getElementById('stat-total-vendors').textContent = vendors.length;
+  let totalPayable = 0;
+  vendors.forEach(v => { totalPayable += getVendorBalance(v.id); });
+  document.getElementById('stat-payable').textContent = fmt(totalPayable);
+
+  const overdue = getOverdueClients();
+  document.getElementById('stat-overdue').textContent = overdue.length;
+
+  // Today visits
+  const todayVisits = [];
+  clients.forEach(c => {
+    const visits = DB.get('visits_' + c.id).filter(v => v.datetime?.startsWith(today()));
+    todayVisits.push(...visits);
+  });
+  const plan = DB.getObj('today_plan', {});
+  const plannedCount = (plan.date === today() && plan.plan) ? plan.plan.length : 0;
+  document.getElementById('stat-visits-today').textContent = `${todayVisits.length}/${plannedCount}`;
+
+  // Category breakdown
+  const cats = { Excellent:0, Good:0, Average:0, Poor:0 };
+  clients.forEach(c => { if(cats[c.category]!==undefined) cats[c.category]++; });
+  const catColors = { Excellent:'var(--green)', Good:'var(--accent2)', Average:'var(--yellow)', Poor:'var(--red)' };
+  document.getElementById('category-breakdown').innerHTML = Object.entries(cats).map(([cat,count]) => `
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div style="width:10px;height:10px;border-radius:50%;background:${catColors[cat]};"></div>
+        <span style="font-size:14px;">${cat}</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;">
+        <div class="progress-bar" style="width:100px;"><div class="progress-fill" style="width:${clients.length?count/clients.length*100:0}%;background:${catColors[cat]};"></div></div>
+        <span style="font-size:14px;font-weight:600;">${count}</span>
+      </div>
+    </div>`).join('');
+
+  // Overdue list
+  const overdueDiv = document.getElementById('dashboard-overdue-list');
+  if(!overdue.length) { overdueDiv.innerHTML = '<div style="color:var(--muted);font-size:14px;">No overdue clients. Great job! ✅</div>'; }
+  else {
+    overdueDiv.innerHTML = overdue.map(o => `
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);flex-wrap:wrap;gap:8px;">
+        <div>
+          <div style="font-weight:600;">${o.client.name}</div>
+          <div style="font-size:12px;color:var(--muted);">${o.client.address} · ${o.maxDays} days overdue</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span style="color:var(--red);font-weight:600;">${fmt(o.totalBal)}</span>
+          <button class="btn btn-sm btn-secondary" onclick="openWhatsApp('${o.client.id}')">📱</button>
+          <button class="btn btn-sm btn-blue" onclick="openMaps('${o.client.id}')">📍</button>
+        </div>
+      </div>`).join('');
+  }
+
+  // Chart
+  const last7 = [];
+  for(let i=6;i>=0;i--) {
+    const d = new Date(); d.setDate(d.getDate()-i);
+    const ds = d.toISOString().split('T')[0];
+    let count = 0;
+    clients.forEach(c => { count += DB.get('visits_'+c.id).filter(v=>v.datetime?.startsWith(ds)).length; });
+    last7.push({ label: ds.slice(5), count });
+  }
+  if(visitChart) visitChart.destroy();
+  const ctx = document.getElementById('visitChart').getContext('2d');
+  visitChart = new Chart(ctx, {
+    type:'bar',
+    data:{
+      labels: last7.map(d=>d.label),
+      datasets:[{ data: last7.map(d=>d.count), backgroundColor:'rgba(249,115,22,0.7)', borderColor:'#f97316', borderWidth:1, borderRadius:4 }]
+    },
+    options:{ plugins:{legend:{display:false}}, scales:{ y:{beginAtZero:true,ticks:{color:'#94a3b8',stepSize:1},grid:{color:'rgba(255,255,255,0.05)'}}, x:{ticks:{color:'#94a3b8'},grid:{display:false}} }, responsive:true, maintainAspectRatio:false }
+  });
+
+  checkOverdue();
+}
+
+// ============================================================
+// DATA MANAGEMENT
+// ============================================================
+function exportAllData() {
+  const clients = DB.get('clients');
+  const vendors = DB.get('vendors');
+  const data = { version:1, exportedAt: new Date().toISOString(), clients, vendors };
+  clients.forEach(c => {
+    data['ledger_'+c.id] = DB.get('ledger_'+c.id);
+    data['visits_'+c.id] = DB.get('visits_'+c.id);
+  });
+  vendors.forEach(v => {
+    data['vendor_ledger_'+v.id] = DB.get('vendor_ledger_'+v.id);
+  });
+  const blob = new Blob([JSON.stringify(data,null,2)], {type:'application/json'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = `elecpro-backup-${today()}.json`; a.click();
+  showToast('Backup exported!');
+}
+
+function importAllData(e) {
+  const file = e.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const data = JSON.parse(ev.target.result);
+      if(!data.clients) throw new Error('Invalid file');
+      if(!confirm(`Import ${data.clients.length} clients and ${data.vendors?.length||0} vendors? This will overwrite existing data.`)) return;
+      DB.set('clients', data.clients);
+      data.clients.forEach(c => {
+        if(data['ledger_'+c.id]) DB.set('ledger_'+c.id, data['ledger_'+c.id]);
+        if(data['visits_'+c.id]) DB.set('visits_'+c.id, data['visits_'+c.id]);
+      });
+      if(data.vendors) {
+        DB.set('vendors', data.vendors);
+        data.vendors.forEach(v => {
+          if(data['vendor_ledger_'+v.id]) DB.set('vendor_ledger_'+v.id, data['vendor_ledger_'+v.id]);
+        });
+      }
+      refreshDashboard(); updateStorageInfo();
+      showToast('Data imported successfully!');
+    } catch(err) { showToast('Invalid backup file.', 'error'); }
+  };
+  reader.readAsText(file);
+}
+
+function exportClientsCSV() {
+  const clients = DB.get('clients');
+  if(!clients.length) return showToast('No clients to export.', 'error');
+  const rows = [['Name','Address','Category','Lat','Lng','Contacts','Notes']];
+  clients.forEach(c => rows.push([c.name, c.address, c.category, c.lat||'', c.lng||'', c.contacts?.map(x=>x.name+':'+x.phone).join(';')||'', c.notes||'']));
+  downloadCSV(rows, `clients-${today()}.csv`);
+}
+
+function exportVendorsCSV() {
+  const vendors = DB.get('vendors');
+  if(!vendors.length) return showToast('No vendors to export.', 'error');
+  const rows = [['Name','Address','Category','Products','Terms','GST','NTN','Bank','Contacts','Notes']];
+  vendors.forEach(v => rows.push([v.name, v.address, v.category, v.products||'', v.terms||'', v.gst||'', v.ntn||'', v.bank||'', v.contacts?.map(x=>x.name+':'+x.phone).join(';')||'', v.notes||'']));
+  downloadCSV(rows, `vendors-${today()}.csv`);
+}
+
+function exportAllVendorLedgersCSV() {
+  const vendors = DB.get('vendors');
+  const rows = [['Vendor','Bill #','Date','Amount','Paid','Balance','Due Date']];
+  vendors.forEach(v => {
+    DB.get('vendor_ledger_'+v.id).forEach(e => rows.push([v.name, e.invoice||'', e.date, e.amount, e.paid, e.amount-e.paid, e.dueDate||'']));
+  });
+  downloadCSV(rows, `all-vendor-ledgers-${today()}.csv`);
+}
+
+function exportAllLedgersCSV() {
+  const clients = DB.get('clients');
+  const rows = [['Client','Invoice','Date','Amount','Paid','Balance','Due Date']];
+  clients.forEach(c => {
+    DB.get('ledger_'+c.id).forEach(e => rows.push([c.name, e.invoice||'', e.date, e.amount, e.paid, e.amount-e.paid, e.dueDate||'']));
+  });
+  downloadCSV(rows, `all-ledgers-${today()}.csv`);
+}
+
+function exportLedgerCSV() {
+  const id = document.getElementById('ledger-client-select').value; if(!id) return;
+  const clients = DB.get('clients'); const c = clients.find(x=>x.id===id);
+  const entries = DB.get('ledger_'+id);
+  const rows = [['Date','Invoice','Amount','Paid','Balance','Due Date','Notes']];
+  entries.forEach(e => rows.push([e.date, e.invoice||'', e.amount, e.paid, e.amount-e.paid, e.dueDate||'', e.notes||'']));
+  downloadCSV(rows, `ledger-${c.name}-${today()}.csv`);
+}
+
+function downloadCSV(rows, filename) {
+  const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g,'""')}"`).join(',')).join('\n');
+  const blob = new Blob([csv], {type:'text/csv'});
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = filename; a.click();
+  showToast('CSV exported!');
+}
+
+function clearAllData() {
+  if(!confirm('DELETE ALL DATA? This cannot be undone!')) return;
+  if(!confirm('Are you absolutely sure? All clients, vendors, ledgers, and visits will be lost.')) return;
+  Object.keys(localStorage).filter(k => k.startsWith('elecpro_')).forEach(k => localStorage.removeItem(k));
+  refreshDashboard(); renderClients();
+  showToast('All data cleared.', 'error');
+}
+
+function updateStorageInfo() {
+  let total = 0;
+  Object.keys(localStorage).filter(k=>k.startsWith('elecpro_')).forEach(k => { total += localStorage[k].length; });
+  const clients = DB.get('clients');
+  const vendors = DB.get('vendors');
+  let visitCount = 0; let ledgerCount = 0; let vendorLedgerCount = 0;
+  clients.forEach(c => { visitCount += DB.get('visits_'+c.id).length; ledgerCount += DB.get('ledger_'+c.id).length; });
+  vendors.forEach(v => { vendorLedgerCount += DB.get('vendor_ledger_'+v.id).length; });
+  document.getElementById('storage-info').innerHTML = `
+    Clients: <b>${clients.length}</b><br>
+    Vendors: <b>${vendors.length}</b><br>
+    Ledger Entries: <b>${ledgerCount}</b><br>
+    Vendor Ledger Entries: <b>${vendorLedgerCount}</b><br>
+    Visit Logs: <b>${visitCount}</b><br>
+    Storage Used: <b>~${(total/1024).toFixed(1)} KB</b><br>
+    LocalStorage Limit: <b>~5,000 KB</b>`;
+}
+
+// ============================================================
+// AUTH / LOGIN
+// ============================================================
+function toggleLoginPasswordVisibility() {
+  const input = document.getElementById('login-password');
+  const icon = document.getElementById('login-eye-icon');
+  if(input.type === 'password') {
+    input.type = 'text';
+    icon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+  } else {
+    input.type = 'password';
+    icon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+  }
+}
+
+function showLoginScreen() {
+  document.getElementById('login-screen').classList.remove('hide');
+  document.getElementById('app-shell').classList.remove('show');
+}
+
+function showAppShell() {
+  document.getElementById('login-screen').classList.add('hide');
+  document.getElementById('app-shell').classList.add('show');
+}
+
+async function handleLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const errDiv = document.getElementById('login-error');
+  errDiv.style.display = 'none';
+  if(!email || !password) { errDiv.textContent = 'Please enter email and password.'; errDiv.style.display = 'block'; return; }
+  document.getElementById('login-btn-text').style.display = 'none';
+  document.getElementById('login-loading').style.display = 'inline-block';
+  document.getElementById('login-btn').disabled = true;
+  const result = await window.doLogin(email, password);
+  document.getElementById('login-btn-text').style.display = 'inline';
+  document.getElementById('login-loading').style.display = 'none';
+  document.getElementById('login-btn').disabled = false;
+  if(!result.success) {
+    errDiv.textContent = 'Login failed. Check your email and password.';
+    errDiv.style.display = 'block';
+  }
+  // On success, onAuthStateChanged (below) takes over and shows the app.
+}
+
+function handleLogout() {
+  if(!confirm('Sign out?')) return;
+  teardownFirestoreSync();
+  window.doLogout();
+}
+
+async function seedDemoDataIfEmpty() {
+  const clients = DB.get('clients');
+  if(clients.length) return;
+  const demo = [
+    { id:uid(), name:'Al-Noor Electricals', address:'Hall Road, Lahore', lat:'31.5651', lng:'74.3099', mapsLink:'', category:'Good', notes:'Major wholesaler, interested in SPDs and breakers.', contacts:[{name:'Imran Butt',designation:'Manager',phone:'0300-1234567'}], createdAt: new Date().toISOString() },
+    { id:uid(), name:'Power Solutions Pvt Ltd', address:'Kot Lakhpat Industrial Area, Lahore', lat:'31.5028', lng:'74.2718', mapsLink:'', category:'Excellent', notes:'Factory, large orders quarterly.', contacts:[{name:'Asad Khan',designation:'Purchase Manager',phone:'0321-9876543'}], createdAt: new Date().toISOString() },
+    { id:uid(), name:'Zaman Brothers Trading', address:'Brandreth Road, Lahore', lat:'31.5760', lng:'74.3340', mapsLink:'', category:'Average', notes:'Small retailer, slow payment.', contacts:[{name:'Sajid Zaman',designation:'Owner',phone:'0311-5556666'}], createdAt: new Date().toISOString() },
+    { id:uid(), name:'Electro Hub DHA', address:'Phase 5, DHA, Lahore', lat:'31.4702', lng:'74.4073', mapsLink:'', category:'Excellent', notes:'Showroom, regular orders.', contacts:[{name:'Farhan Ahmed',designation:'Director',phone:'0333-7778888'}], createdAt: new Date().toISOString() },
+    { id:uid(), name:'Johar Town Wiring Supplies', address:'Main Market, Johar Town, Lahore', lat:'31.4671', lng:'74.2711', mapsLink:'', category:'Poor', notes:'Payment issues.', contacts:[{name:'Bilal Chaudhry',designation:'Owner',phone:'0322-4443333'}], createdAt: new Date().toISOString() }
+  ];
+  DB.set('clients', demo);
+  const oldDate = new Date(); oldDate.setDate(oldDate.getDate()-60);
+  const dueDate = new Date(); dueDate.setDate(dueDate.getDate()-55);
+  DB.set('ledger_'+demo[2].id, [{ id:uid(), date:oldDate.toISOString().split('T')[0], invoice:'INV-089', amount:85000, paid:20000, dueDate:dueDate.toISOString().split('T')[0], notes:'Cable supply' }]);
+  DB.set('ledger_'+demo[4].id, [{ id:uid(), date:oldDate.toISOString().split('T')[0], invoice:'INV-091', amount:42000, paid:0, dueDate:dueDate.toISOString().split('T')[0], notes:'Meter supply' }]);
+  DB.set('ledger_'+demo[0].id, [{ id:uid(), date:today(), invoice:'INV-101', amount:125000, paid:125000, dueDate:today(), notes:'MCBs and SPDs' }]);
+}
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('topbar-date').textContent = new Date().toLocaleDateString('en-PK', { weekday:'short', day:'numeric', month:'short', year:'numeric' });
+
+  // Allow Enter key to submit login form
+  document.getElementById('login-password').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleLogin(); });
+  document.getElementById('login-email').addEventListener('keydown', (e) => { if(e.key === 'Enter') handleLogin(); });
+
+  window.addEventListener('authStateChanged', async (e) => {
+    const user = e.detail.user;
+    if(user) {
+      showAppShell();
+      await initFirestoreSync(user.uid);
+      // Give listeners a moment to populate cache from Firestore before deciding
+      // whether this is a brand-new account (no clients yet -> seed demo data).
+      setTimeout(async () => {
+        await seedDemoDataIfEmpty();
+        refreshDashboard();
+      }, 1200);
+    } else {
+      teardownFirestoreSync();
+      showLoginScreen();
+    }
+  });
+});
+
+window.addEventListener('online', () => setSyncStatus('synced'));
+window.addEventListener('offline', () => setSyncStatus('offline'));
+</script>
+</body>
+</html>
